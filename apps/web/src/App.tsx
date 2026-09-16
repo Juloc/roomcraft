@@ -22,38 +22,47 @@ export function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
 
   const level = document.levels[0];
-  if (!level) throw new Error("The project must contain at least one level.");
+  if (!level) {
+    return (
+      <main className="fatal-state" role="alert">
+        <strong>Project cannot be opened</strong>
+        <span>The project document does not contain a level.</span>
+      </main>
+    );
+  }
 
-  const projection = projectLevel2D(document, level.id);
+  const levelId = level.id;
+  const projection = projectLevel2D(document, levelId);
   const hasDemoRoom = level.walls.length > 0;
 
   function createDemoRoom() {
-    if (history.document.levels[0]?.walls.length) return;
+    const currentLevel = history.document.levels.find((candidate) => candidate.id === levelId);
+    if (!currentLevel || currentLevel.walls.length > 0) return;
 
     const commands = [
       new AddWallCommand({
-        levelId: level.id,
+        levelId,
         wallId: "wall_north",
         start: { kind: "new" as const, vertex: { id: "vertex_nw", xMm: 0, yMm: 0 } },
         end: { kind: "new" as const, vertex: { id: "vertex_ne", xMm: 4000, yMm: 0 } },
         thicknessMm: 120,
       }),
       new AddWallCommand({
-        levelId: level.id,
+        levelId,
         wallId: "wall_east",
         start: { kind: "existing" as const, vertexId: "vertex_ne" },
         end: { kind: "new" as const, vertex: { id: "vertex_se", xMm: 4000, yMm: 3000 } },
         thicknessMm: 120,
       }),
       new AddWallCommand({
-        levelId: level.id,
+        levelId,
         wallId: "wall_south",
         start: { kind: "existing" as const, vertexId: "vertex_se" },
         end: { kind: "new" as const, vertex: { id: "vertex_sw", xMm: 0, yMm: 3000 } },
         thicknessMm: 120,
       }),
       new AddWallCommand({
-        levelId: level.id,
+        levelId,
         wallId: "wall_west",
         start: { kind: "existing" as const, vertexId: "vertex_sw" },
         end: { kind: "existing" as const, vertexId: "vertex_nw" },
