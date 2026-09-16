@@ -15,12 +15,21 @@ export async function loadProject(projectId: string): Promise<PersistedProject |
   return parseProjectResponse(await response.json());
 }
 
-export async function createProject(document: ProjectDocument): Promise<PersistedProject> {
+export async function ensureProject(document: ProjectDocument): Promise<PersistedProject> {
+  const existing = await loadProject(document.id);
+  if (existing) return existing;
+
   const response = await fetch("/api/projects", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ document }),
   });
+
+  if (response.status === 409) {
+    const racedProject = await loadProject(document.id);
+    if (racedProject) return racedProject;
+  }
+
   if (!response.ok) throw new Error(`Creating project failed with HTTP ${response.status}.`);
   return parseProjectResponse(await response.json());
 }
