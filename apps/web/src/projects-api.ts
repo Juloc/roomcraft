@@ -57,7 +57,11 @@ function parseProjectResponse(value: unknown): PersistedProject {
     throw new Error("Project response id does not match its document.");
   }
   if (typeof response.name !== "string") throw new Error("Project response name is invalid.");
-  if (!Number.isSafeInteger(response.revision) || (response.revision as number) <= 0) {
+  if (
+    typeof response.revision !== "number" ||
+    !Number.isSafeInteger(response.revision) ||
+    response.revision <= 0
+  ) {
     throw new Error("Project response revision is invalid.");
   }
   if (typeof response.updatedUtc !== "string") {
@@ -67,7 +71,7 @@ function parseProjectResponse(value: unknown): PersistedProject {
   return {
     id: response.id,
     name: response.name,
-    revision: response.revision as number,
+    revision: response.revision,
     updatedUtc: response.updatedUtc,
     document,
   };
