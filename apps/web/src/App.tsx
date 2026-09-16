@@ -1,10 +1,21 @@
 import { createEmptyProject } from "@roomcraft/document";
-import { AddWallCommand, CommandHistory } from "@roomcraft/editor-core";
+import {
+  AddWallCommand,
+  CommandHistory,
+  snapPlanPoint,
+  type PlanSnapResult,
+} from "@roomcraft/editor-core";
 import { projectLevel2D } from "@roomcraft/render-2d";
 import { Button, Panel, SegmentedControl, Toolbar } from "@roomcraft/ui";
-import { useRef, useState } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 type ViewMode = "2d" | "3d";
+type EditorTool = "wall" | null;
+type PlanPoint = PlanSnapResult["point"];
+
+interface WallDraft {
+  start: PlanSnapResult;
+}
 
 const VIEW_OPTIONS = [
   { value: "2d", label: "2D" },
@@ -20,6 +31,9 @@ export function App() {
   const history = historyRef.current;
   const [document, setDocument] = useState(history.document);
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
+  const [activeTool, setActiveTool] = useState<EditorTool>("wall");
+  const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
+  const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
 
   const level = document.levels[0];
   if (!level) {
@@ -33,53 +47,94 @@ export function App() {
 
   const levelId = level.id;
   const projection = projectLevel2D(document, levelId);
-  const hasDemoRoom = level.walls.length > 0;
 
-  function createDemoRoom() {
-    const currentLevel = history.document.levels.find((candidate) => candidate.id === levelId);
-    if (!currentLevel || currentLevel.walls.length > 0) return;
+  function currentLevel() {
+    return history.document.levels.find((candidate) => candidate.id === levelId) ?? null;
+  }
 
-    const commands = [
-      new AddWallCommand({
-        levelId,
-        wallId: "wall_north",
-        start: { kind: "new" as const, vertex: { id: "vertex_nw", xMm: 0, yMm: 0 } },
-        end: { kind: "new" as const, vertex: { id: "vertex_ne", xMm: 4000, yMm: 0 } },
-        thicknessMm: 120,
-      }),
-      new AddWallCommand({
-        levelId,
-        wallId: "wall_east",
-        start: { kind: "existing" as const, vertexId: "vertex_ne" },
-        end: { kind: "new" as const, vertex: { id: "vertex_se", xMm: 4000, yMm: 3000 } },
-        thicknessMm: 120,
-      }),
-      new AddWallCommand({
-        levelId,
-        wallId: "wall_south",
-        start: { kind: "existing" as const, vertexId: "vertex_se" },
-        end: { kind: "new" as const, vertex: { id: "vertex_sw", xMm: 0, yMm: 3000 } },
-        thicknessMm: 120,
-      }),
-      new AddWallCommand({
-        levelId,
-        wallId: "wall_west",
-        start: { kind: "existing" as const, vertexId: "vertex_sw" },
-        end: { kind: "existing" as const, vertexId: "vertex_nw" },
-        thicknessMm: 120,
-      }),
-    ];
+  function snap(point: PlanPoint): PlanSnapResult | null {
+    const current = currentLevel();
+    if (!current) return null;
 
-    let next = history.document;
-    for (const command of commands) next = history.execute(command);
+    return snapPlanPoint(point, current, {
+      gridSizeMm: history.document.settings.gridSizeMm,
+    });
+  }
+
+  function handlePlanPointerMove(point: PlanPoint) {
+    if (activeTool !== "wall") return;
+    setHoverSnap(snap(point));
+  }
+
+  function handlePlanPointerLeave() {
+    setHoverSnap(null);
+  }
+
+  function handlePlanPoint(point: PlanPoint) {
+    if (activeTool !== "wall") return;
+
+    const snapped = snap(point);
+    if (!snapped) return;
+
+    if (!wallDraft) {
+      setWallDraft({ start: snapped });
+      setHoverSnap(snapped);
+      return;
+    }
+
+    if (samePoint(wallDraft.start.point, snapped.point)) return;
+
+    const start = endpointFromSnap(wallDraft.start);
+    const end = endpointFromSnap(snapped);
+    const next = history.execute(
+      new AddWallCommand({
+        levelId,
+        wallId: createEntityId("wall"),
+        start,
+        end,
+        thicknessMm: 120,
+      }),
+    );
+
     setDocument(next);
+
+    const endVertexId = end.kind === "existing" ? end.vertexId : end.vertex.id;
+    const chainedStart: PlanSnapResult = {
+      point: snapped.point,
+      source: "vertex",
+      vertexId: endVertexId,
+    };
+    setWallDraft({ start: chainedStart });
+    setHoverSnap(chainedStart);
+  }
+
+  function cancelDrawing() {
+    setWallDraft(null);
+    setHoverSnap(null);
+  }
+
+  function toggleWallTool() {
+    if (activeTool === "wall") {
+      setActiveTool(null);
+      cancelDrawing();
+    } else {
+      setActiveTool("wall");
+      setViewMode("2d");
+    }
+  }
+
+  function changeView(mode: ViewMode) {
+    setViewMode(mode);
+    if (mode !== "2d") cancelDrawing();
   }
 
   function undo() {
+    cancelDrawing();
     setDocument(history.undo());
   }
 
   function redo() {
+    cancelDrawing();
     setDocument(history.redo());
   }
 
@@ -101,7 +156,7 @@ export function App() {
           <SegmentedControl
             value={viewMode}
             options={VIEW_OPTIONS}
-            onChange={setViewMode}
+            onChange={changeView}
             ariaLabel="Editor view"
           />
         </Toolbar>
@@ -109,7 +164,11 @@ export function App() {
 
       <main className="editor-layout">
         <aside className="tool-rail" aria-label="Drawing tools">
-          <Button variant="primary" disabled title="Interactive wall drawing is the next editor tool">
+          <Button
+            variant={activeTool === "wall" ? "primary" : "ghost"}
+            onClick={toggleWallTool}
+            title="Draw connected walls"
+          >
             Wall
           </Button>
           <Button variant="ghost" disabled title="Door placement is not implemented yet">
@@ -122,7 +181,18 @@ export function App() {
 
         <section className="workspace" aria-label="Planning workspace">
           {viewMode === "2d" ? (
-            <PlanCanvas walls={projection.walls} />
+            <PlanCanvas
+              walls={projection.walls}
+              wallToolActive={activeTool === "wall"}
+              draftStart={wallDraft?.start.point ?? null}
+              draftEnd={wallDraft ? hoverSnap?.point ?? wallDraft.start.point : null}
+              snapPoint={hoverSnap?.point ?? null}
+              snapSource={hoverSnap?.source ?? null}
+              onPoint={handlePlanPoint}
+              onPointerPosition={handlePlanPointerMove}
+              onPointerLeave={handlePlanPointerLeave}
+              onCancel={cancelDrawing}
+            />
           ) : (
             <div className="viewport-placeholder">
               <strong>3D viewport</strong>
@@ -152,14 +222,22 @@ export function App() {
                   <dt>Grid</dt>
                   <dd>{document.settings.gridSizeMm} mm</dd>
                 </div>
+                <div>
+                  <dt>Wall</dt>
+                  <dd>120 mm</dd>
+                </div>
               </dl>
 
-              <Button variant="primary" onClick={createDemoRoom} disabled={hasDemoRoom}>
-                Create 4 × 3 m room
-              </Button>
-              <p className="hint">
-                This action already uses the same commands that pointer and touch tools will use.
-              </p>
+              <div className="tool-status" aria-live="polite">
+                <strong>{wallDraft ? "Continue wall" : "Draw wall"}</strong>
+                <span>
+                  {activeTool === "wall"
+                    ? wallDraft
+                      ? "Choose the next endpoint. Escape cancels the chain."
+                      : "Choose the first endpoint. Points snap to vertices and the grid."
+                    : "Select the Wall tool to start drawing."}
+                </span>
+              </div>
             </div>
           </Panel>
         </aside>
@@ -170,11 +248,61 @@ export function App() {
 
 interface PlanCanvasProps {
   walls: ReturnType<typeof projectLevel2D>["walls"];
+  wallToolActive: boolean;
+  draftStart: PlanPoint | null;
+  draftEnd: PlanPoint | null;
+  snapPoint: PlanPoint | null;
+  snapSource: PlanSnapResult["source"] | null;
+  onPoint(point: PlanPoint): void;
+  onPointerPosition(point: PlanPoint): void;
+  onPointerLeave(): void;
+  onCancel(): void;
 }
 
-function PlanCanvas({ walls }: PlanCanvasProps) {
+function PlanCanvas({
+  walls,
+  wallToolActive,
+  draftStart,
+  draftEnd,
+  snapPoint,
+  snapSource,
+  onPoint,
+  onPointerPosition,
+  onPointerLeave,
+  onCancel,
+}: PlanCanvasProps) {
+  function pointerPoint(event: ReactPointerEvent<SVGSVGElement>): PlanPoint | null {
+    const matrix = event.currentTarget.getScreenCTM();
+    if (!matrix) return null;
+
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    return { xMm: point.x, yMm: point.y };
+  }
+
   return (
-    <svg className="plan-canvas" viewBox="-600 -600 5200 4200" role="img" aria-label="2D floor plan">
+    <svg
+      className={`plan-canvas${wallToolActive ? " plan-canvas--wall-tool" : ""}`}
+      viewBox="-600 -600 5200 4200"
+      role="application"
+      aria-label="2D floor plan editor"
+      tabIndex={0}
+      onPointerMove={(event) => {
+        const point = pointerPoint(event);
+        if (point) onPointerPosition(point);
+      }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        const point = pointerPoint(event);
+        if (!point) return;
+        event.preventDefault();
+        event.currentTarget.focus();
+        onPoint(point);
+      }}
+      onPointerLeave={onPointerLeave}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onCancel();
+      }}
+    >
       <defs>
         <pattern id="minor-grid" width="100" height="100" patternUnits="userSpaceOnUse">
           <path d="M 100 0 L 0 0 0 100" className="grid-line grid-line--minor" />
@@ -197,6 +325,50 @@ function PlanCanvas({ walls }: PlanCanvasProps) {
           strokeLinecap="square"
         />
       ))}
+      {draftStart && draftEnd ? (
+        <line
+          x1={draftStart.xMm}
+          y1={draftStart.yMm}
+          x2={draftEnd.xMm}
+          y2={draftEnd.yMm}
+          strokeWidth={120}
+          className="plan-wall-preview"
+          strokeLinecap="square"
+          pointerEvents="none"
+        />
+      ) : null}
+      {snapPoint ? (
+        <circle
+          cx={snapPoint.xMm}
+          cy={snapPoint.yMm}
+          r={snapSource === "vertex" ? 85 : 65}
+          className={`snap-marker snap-marker--${snapSource ?? "grid"}`}
+          pointerEvents="none"
+        />
+      ) : null}
     </svg>
   );
+}
+
+function endpointFromSnap(snap: PlanSnapResult) {
+  if (snap.source === "vertex" && snap.vertexId) {
+    return { kind: "existing" as const, vertexId: snap.vertexId };
+  }
+
+  return {
+    kind: "new" as const,
+    vertex: {
+      id: createEntityId("vertex"),
+      xMm: Math.round(snap.point.xMm),
+      yMm: Math.round(snap.point.yMm),
+    },
+  };
+}
+
+function samePoint(a: PlanPoint, b: PlanPoint): boolean {
+  return a.xMm === b.xMm && a.yMm === b.yMm;
+}
+
+function createEntityId(prefix: string): string {
+  return `${prefix}_${crypto.randomUUID()}`;
 }
