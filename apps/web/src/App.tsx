@@ -17,10 +17,17 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import {
+  ProjectConflictError,
+  createProject,
+  loadProject,
+  saveProject,
+} from "./projects-api";
 
 type ViewMode = "2d" | "3d";
 type EditorTool = "wall" | "door" | "window" | null;
 type PlanPoint = PlanSnapResult["point"];
+type SaveState = "loading" | "saved" | "unsaved" | "saving" | "conflict" | "error";
 
 interface WallDraft {
   start: PlanSnapResult;
@@ -36,19 +43,64 @@ const OPENING_PRESETS = {
   window: { widthMm: 1200, heightMm: 1200, sillHeightMm: 900 } as const,
 };
 
+const CURRENT_PROJECT_KEY = "roomcraft.currentProjectId";
+
 export function App() {
   const historyRef = useRef<CommandHistory | null>(null);
   if (!historyRef.current) {
-    historyRef.current = new CommandHistory(createEmptyProject("project_local", "My apartment"));
+    historyRef.current = new CommandHistory(
+      createEmptyProject(getOrCreateProjectId(), "My apartment"),
+    );
   }
 
   const history = historyRef.current;
   const [document, setDocument] = useState(history.document);
+  const [revision, setRevision] = useState<number | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>("loading");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
   const [activeTool, setActiveTool] = useState<EditorTool>("wall");
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
   const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateProject() {
+      const initialDocument = historyRef.current?.document;
+      if (!initialDocument) return;
+
+      try {
+        const existing = await loadProject(initialDocument.id);
+        if (cancelled) return;
+
+        if (existing) {
+          historyRef.current = new CommandHistory(existing.document);
+          setDocument(existing.document);
+          setRevision(existing.revision);
+        } else {
+          const created = await createProject(initialDocument);
+          if (cancelled) return;
+          historyRef.current = new CommandHistory(created.document);
+          setDocument(created.document);
+          setRevision(created.revision);
+        }
+
+        setSaveState("saved");
+        setSaveError(null);
+      } catch (error) {
+        if (cancelled) return;
+        setSaveState("error");
+        setSaveError(errorMessage(error));
+      }
+    }
+
+    void hydrateProject();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const level = document.levels[0];
   if (!level) {
@@ -60,11 +112,32 @@ export function App() {
     );
   }
 
+  if (saveState === "loading") {
+    return (
+      <main className="fatal-state" aria-live="polite">
+        <strong>Loading project</strong>
+        <span>Opening the latest saved revision.</span>
+      </main>
+    );
+  }
+
   const levelId = level.id;
   const projection = projectLevel2D(document, levelId);
 
+  function currentHistory(): CommandHistory {
+    const current = historyRef.current;
+    if (!current) throw new Error("Editor history is unavailable.");
+    return current;
+  }
+
   function currentLevel() {
-    return history.document.levels.find((candidate) => candidate.id === levelId) ?? null;
+    return currentHistory().document.levels.find((candidate) => candidate.id === levelId) ?? null;
+  }
+
+  function markChanged(next: ProjectDocument) {
+    setDocument(next);
+    setSaveState("unsaved");
+    setSaveError(null);
   }
 
   function snap(point: PlanPoint): PlanSnapResult | null {
@@ -72,7 +145,7 @@ export function App() {
     if (!current) return null;
 
     return snapPlanPoint(point, current, {
-      gridSizeMm: history.document.settings.gridSizeMm,
+      gridSizeMm: currentHistory().document.settings.gridSizeMm,
     });
   }
 
@@ -126,7 +199,7 @@ export function App() {
 
     const start = endpointFromSnap(wallDraft.start);
     const end = endpointFromSnap(snapped);
-    const next = history.execute(
+    const next = currentHistory().execute(
       new AddWallCommand({
         levelId,
         wallId: createEntityId("wall"),
@@ -136,7 +209,7 @@ export function App() {
       }),
     );
 
-    setDocument(next);
+    markChanged(next);
 
     const endVertexId = end.kind === "existing" ? end.vertexId : end.vertex.id;
     const chainedStart: PlanSnapResult = {
@@ -165,7 +238,7 @@ export function App() {
       swing: tool === "door" ? "left" : "none",
     };
 
-    setDocument(history.execute(new AddOpeningCommand({ levelId, opening })));
+    markChanged(currentHistory().execute(new AddOpeningCommand({ levelId, opening })));
     setOpeningHover(null);
   }
 
@@ -194,12 +267,40 @@ export function App() {
 
   function undo() {
     cancelTransient();
-    setDocument(history.undo());
+    markChanged(currentHistory().undo());
   }
 
   function redo() {
     cancelTransient();
-    setDocument(history.redo());
+    markChanged(currentHistory().redo());
+  }
+
+  async function persistProject() {
+    if (saveState === "saving" || saveState === "loading") return;
+    setSaveState("saving");
+    setSaveError(null);
+
+    try {
+      let persisted;
+      if (revision === null) {
+        const existing = await loadProject(document.id);
+        persisted = existing
+          ? await saveProject(document, existing.revision)
+          : await createProject(document);
+      } else {
+        persisted = await saveProject(document, revision);
+      }
+
+      setRevision(persisted.revision);
+      setSaveState("saved");
+    } catch (error) {
+      if (error instanceof ProjectConflictError) {
+        setSaveState("conflict");
+      } else {
+        setSaveState("error");
+      }
+      setSaveError(errorMessage(error));
+    }
   }
 
   return (
@@ -211,12 +312,22 @@ export function App() {
         </div>
 
         <Toolbar>
-          <Button variant="ghost" onClick={undo} disabled={!history.canUndo}>
+          <Button variant="ghost" onClick={undo} disabled={!currentHistory().canUndo}>
             Undo
           </Button>
-          <Button variant="ghost" onClick={redo} disabled={!history.canRedo}>
+          <Button variant="ghost" onClick={redo} disabled={!currentHistory().canRedo}>
             Redo
           </Button>
+          <Button
+            variant="primary"
+            onClick={() => void persistProject()}
+            disabled={saveState === "saving" || saveState === "saved"}
+          >
+            {saveState === "saving" ? "Saving…" : "Save"}
+          </Button>
+          <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
+            {saveStateLabel(saveState)}
+          </span>
           <SegmentedControl
             value={viewMode}
             options={VIEW_OPTIONS}
@@ -299,6 +410,10 @@ export function App() {
                 <div>
                   <dt>Grid</dt>
                   <dd>{document.settings.gridSizeMm} mm</dd>
+                </div>
+                <div>
+                  <dt>Revision</dt>
+                  <dd>{revision ?? "—"}</dd>
                 </div>
               </dl>
 
@@ -517,6 +632,36 @@ function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean)
   if (activeTool === "door") return "Click near a wall to place a 900 × 2100 mm door.";
   if (activeTool === "window") return "Click near a wall to place a 1200 × 1200 mm window with a 900 mm sill.";
   return "Choose Wall, Door or Window.";
+}
+
+function saveStateLabel(state: SaveState): string {
+  switch (state) {
+    case "loading":
+      return "Loading";
+    case "saved":
+      return "Saved";
+    case "unsaved":
+      return "Unsaved";
+    case "saving":
+      return "Saving";
+    case "conflict":
+      return "Conflict";
+    case "error":
+      return "Save error";
+  }
+}
+
+function getOrCreateProjectId(): string {
+  const existing = window.localStorage.getItem(CURRENT_PROJECT_KEY);
+  if (existing) return existing;
+
+  const id = createEntityId("project");
+  window.localStorage.setItem(CURRENT_PROJECT_KEY, id);
+  return id;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error.";
 }
 
 function createEntityId(prefix: string): string {
