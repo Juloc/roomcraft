@@ -37,6 +37,45 @@ See:
 
 A wall is stored as connected vertices, thickness and height. A door/window is stored as an opening anchored to a wall. Furniture is stored as a catalog/custom asset reference plus semantic dimensions and transform. Three.js meshes, Canvas/SVG shapes and export files are derived outputs.
 
-## Status
+## Development
 
-Initial architecture/design phase. Implementation has not started yet.
+Requirements:
+
+- .NET 10 SDK
+- Node.js 22.12 or newer
+
+Install and run the browser editor:
+
+```bash
+npm install
+npm run dev
+```
+
+Run frontend quality gates:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+Build the backend:
+
+```bash
+dotnet build RoomCraft.slnx
+```
+
+## Current implementation
+
+The initial vertical slice contains:
+
+- versioned V1 project document and validation
+- shared geometry primitives and tolerances
+- command-only document mutation with undo/redo
+- 2D projection package
+- shared UI design tokens/components
+- responsive browser editor shell
+- command-driven 4 × 3 m sample room
+- ASP.NET Core host and CI quality gates
+
+Interactive wall drawing, persistence, real 3D projection, catalog and exports follow as separate feature slices without bypassing these boundaries.
