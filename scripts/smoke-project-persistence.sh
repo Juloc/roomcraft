@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+API_URL="${ROOMCRAFT_API_URL:-http://127.0.0.1:5050}"
+PROJECT_ID="ci_project_${GITHUB_RUN_ID:-local}_${GITHUB_RUN_ATTEMPT:-1}"
+LOG_FILE="${RUNNER_TEMP:-/tmp}/roomcraft-api.log"
+
+cleanup() {
+  if [[ -n "${API_PID:-}" ]]; then
+    kill "$API_PID" 2>/dev/null || true
+    wait "$API_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+dotnet run \
+  --project src/server/RoomCraft.Host/RoomCraft.Host.csproj \
+  --configuration Release \
+  --no-build \
+  --no-launch-profile \
+  --urls "$API_URL" >"$LOG_FILE" 2>&1 &
+API_PID=$!
+
+for _ in $(seq 1 30); do
+  if curl --fail --silent "$API_URL/api/health" >/dev/null; then
+    break
+  fi
+  if ! kill -0 "$API_PID" 2>/dev/null; then
+    cat "$LOG_FILE"
+    exit 1
+  fi
+  sleep 1
+done
+
+if ! curl --fail --silent "$API_URL/api/health" >/dev/null; then
+  cat "$LOG_FILE"
+  exit 1
+fi
+
+project_document() {
+  local name="$1"
+  cat <<JSON
+{"document":{"schemaVersion":1,"id":"$PROJECT_ID","name":"$name","settings":{"unitSystem":"metric","gridSizeMm":100,"angleSnapDeg":15},"levels":[{"id":"level_ground","name":"Ground floor","elevationMm":0,"defaultWallHeightMm":2500,"vertices":[],"walls":[],"openings":[],"objects":[]}]}}
+JSON
+}
+
+CREATE_RESPONSE=$(project_document "CI Project" | curl --fail --silent --show-error \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data-binary @- \
+  "$API_URL/api/projects")
+
+python3 - "$CREATE_RESPONSE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+assert payload["revision"] == 1, payload
+assert payload["document"]["name"] == "CI Project", payload
+PY
+
+GET_RESPONSE=$(curl --fail --silent --show-error "$API_URL/api/projects/$PROJECT_ID")
+python3 - "$GET_RESPONSE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+assert payload["revision"] == 1, payload
+assert payload["document"]["schemaVersion"] == 1, payload
+PY
+
+UPDATE_RESPONSE=$(project_document "CI Project Updated" | curl --fail --silent --show-error \
+  -X PUT \
+  -H "Content-Type: application/json" \
+  -H "If-Match: 1" \
+  --data-binary @- \
+  "$API_URL/api/projects/$PROJECT_ID")
+
+python3 - "$UPDATE_RESPONSE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+assert payload["revision"] == 2, payload
+assert payload["document"]["name"] == "CI Project Updated", payload
+PY
+
+STALE_STATUS=$(project_document "Stale Update" | curl --silent --show-error \
+  -o "${RUNNER_TEMP:-/tmp}/roomcraft-stale-response.json" \
+  -w "%{http_code}" \
+  -X PUT \
+  -H "Content-Type: application/json" \
+  -H "If-Match: 1" \
+  --data-binary @- \
+  "$API_URL/api/projects/$PROJECT_ID")
+
+if [[ "$STALE_STATUS" != "409" ]]; then
+  cat "${RUNNER_TEMP:-/tmp}/roomcraft-stale-response.json"
+  printf 'Expected stale save to return 409, got %s\n' "$STALE_STATUS" >&2
+  exit 1
+fi
+
+printf 'Project persistence smoke test passed.\n'
