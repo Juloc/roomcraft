@@ -1,0 +1,19 @@
+{
+  "name": "@roomcraft/render-3d",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@roomcraft/document": "*",
+    "@roomcraft/geometry": "*",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "typescript": "7.0.2"
+  }
+}

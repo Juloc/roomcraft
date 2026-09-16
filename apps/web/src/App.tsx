@@ -1,4 +1,4 @@
-import { createEmptyProject } from "@roomcraft/document";
+import { createEmptyProject, type ProjectDocument } from "@roomcraft/document";
 import {
   AddWallCommand,
   CommandHistory,
@@ -6,8 +6,14 @@ import {
   type PlanSnapResult,
 } from "@roomcraft/editor-core";
 import { projectLevel2D } from "@roomcraft/render-2d";
+import { RoomSceneRenderer } from "@roomcraft/render-3d";
 import { Button, Panel, SegmentedControl, Toolbar } from "@roomcraft/ui";
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 type ViewMode = "2d" | "3d";
 type EditorTool = "wall" | null;
@@ -194,10 +200,7 @@ export function App() {
               onCancel={cancelDrawing}
             />
           ) : (
-            <div className="viewport-placeholder">
-              <strong>3D viewport</strong>
-              <span>Uses the same project document. Three.js projection is the next slice.</span>
-            </div>
+            <ThreeViewport document={document} levelId={levelId} />
           )}
         </section>
 
@@ -229,13 +232,15 @@ export function App() {
               </dl>
 
               <div className="tool-status" aria-live="polite">
-                <strong>{wallDraft ? "Continue wall" : "Draw wall"}</strong>
+                <strong>{viewMode === "3d" ? "3D view" : wallDraft ? "Continue wall" : "Draw wall"}</strong>
                 <span>
-                  {activeTool === "wall"
-                    ? wallDraft
-                      ? "Choose the next endpoint. Escape cancels the chain."
-                      : "Choose the first endpoint. Points snap to vertices and the grid."
-                    : "Select the Wall tool to start drawing."}
+                  {viewMode === "3d"
+                    ? "Drag to orbit. Scroll to zoom. The scene is derived from the same project document."
+                    : activeTool === "wall"
+                      ? wallDraft
+                        ? "Choose the next endpoint. Escape cancels the chain."
+                        : "Choose the first endpoint. Points snap to vertices and the grid."
+                      : "Select the Wall tool to start drawing."}
                 </span>
               </div>
             </div>
@@ -348,6 +353,35 @@ function PlanCanvas({
       ) : null}
     </svg>
   );
+}
+
+interface ThreeViewportProps {
+  document: ProjectDocument;
+  levelId: string;
+}
+
+function ThreeViewport({ document, levelId }: ThreeViewportProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const rendererRef = useRef<RoomSceneRenderer | null>(null);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    const renderer = new RoomSceneRenderer(host);
+    rendererRef.current = renderer;
+
+    return () => {
+      renderer.dispose();
+      rendererRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    rendererRef.current?.setDocument(document, levelId);
+  }, [document, levelId]);
+
+  return <div ref={hostRef} className="three-viewport" aria-label="3D apartment view" />;
 }
 
 function endpointFromSnap(snap: PlanSnapResult) {

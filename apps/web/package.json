@@ -12,6 +12,7 @@
     "@roomcraft/document": "*",
     "@roomcraft/editor-core": "*",
     "@roomcraft/render-2d": "*",
+    "@roomcraft/render-3d": "*",
     "@roomcraft/ui": "*",
     "react": "19.3.0",
     "react-dom": "19.3.0"
