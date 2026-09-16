@@ -15,7 +15,7 @@ export interface OpeningPlacementOptions {
 
 export function snapOpeningToWall(
   point: Point2Mm,
-  level: Pick<Level, "vertices" | "walls">,
+  level: Pick<Level, "vertices" | "walls" | "openings">,
   options: OpeningPlacementOptions,
 ): OpeningWallPlacement | null {
   if (!Number.isSafeInteger(options.widthMm) || options.widthMm <= 0) {
@@ -48,6 +48,18 @@ export function snapOpeningToWall(
     const minT = halfWidthMm / lengthMm;
     const maxT = 1 - minT;
     const t = Math.min(maxT, Math.max(minT, rawT));
+    const offsetMm = Math.round(t * lengthMm);
+    const openingStartMm = offsetMm - halfWidthMm;
+    const openingEndMm = offsetMm + halfWidthMm;
+
+    const overlaps = level.openings.some((opening) => {
+      if (opening.wallId !== wall.id) return false;
+      const existingStartMm = opening.offsetMm - opening.widthMm / 2;
+      const existingEndMm = opening.offsetMm + opening.widthMm / 2;
+      return openingStartMm < existingEndMm && openingEndMm > existingStartMm;
+    });
+    if (overlaps) continue;
+
     const snappedPoint = {
       xMm: start.xMm + dx * t,
       yMm: start.yMm + dy * t,
@@ -57,7 +69,7 @@ export function snapOpeningToWall(
 
     const candidate: OpeningWallPlacement = {
       wallId: wall.id,
-      offsetMm: Math.round(t * lengthMm),
+      offsetMm,
       point: {
         xMm: Math.round(snappedPoint.xMm),
         yMm: Math.round(snappedPoint.yMm),
