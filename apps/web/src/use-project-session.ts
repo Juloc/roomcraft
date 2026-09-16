@@ -62,10 +62,11 @@ export function useProjectSession(createInitialDocument: () => ProjectDocument):
     let cancelled = false;
     const initialDocument = initialDocumentRef.current;
     if (!initialDocument) return;
+    const hydrationDocument: ProjectDocument = initialDocument;
 
     async function hydrate() {
       try {
-        const persisted = await ensureProject(initialDocument);
+        const persisted = await ensureProject(hydrationDocument);
         if (cancelled || !mountedRef.current) return;
 
         const history = new CommandHistory(persisted.document);
