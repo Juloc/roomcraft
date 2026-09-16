@@ -57,7 +57,7 @@ body {
 .save-state--conflict,
 .save-state--error {
   font-weight: 700;
-  color: var(--rc-danger, #b42318);
+  color: var(--rc-danger);
 }
 
 .editor-layout {
