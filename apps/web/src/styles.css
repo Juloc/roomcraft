@@ -80,7 +80,7 @@ body {
   box-shadow: inset 0 0 0 2px var(--rc-accent);
 }
 
-.plan-canvas--wall-tool {
+.plan-canvas--tool-active {
   cursor: crosshair;
 }
 
@@ -125,7 +125,26 @@ body {
   opacity: 0.58;
 }
 
-.snap-marker {
+.plan-opening-cut {
+  stroke: var(--rc-bg);
+}
+
+.plan-opening-symbol {
+  fill: none;
+  stroke-width: 28;
+  vector-effect: non-scaling-stroke;
+}
+
+.plan-opening-symbol--door {
+  stroke: var(--rc-text-muted);
+}
+
+.plan-opening-symbol--window {
+  stroke: var(--rc-accent);
+}
+
+.snap-marker,
+.opening-marker {
   fill: var(--rc-surface);
   stroke: var(--rc-accent);
   stroke-width: 22;
@@ -133,6 +152,10 @@ body {
 }
 
 .snap-marker--vertex {
+  fill: var(--rc-accent-bg);
+}
+
+.opening-marker {
   fill: var(--rc-accent-bg);
 }
 
