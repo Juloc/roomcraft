@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="src/server/RoomCraft.Host/RoomCraft.Host.csproj" />
   <Project Path="src/server/RoomCraft.SharedKernel/RoomCraft.SharedKernel.csproj" />
+  <Project Path="src/server/Modules/Projects/RoomCraft.Modules.Projects.csproj" />
 </Solution>
