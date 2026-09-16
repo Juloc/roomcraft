@@ -1,8 +1,11 @@
-import { createEmptyProject, type ProjectDocument } from "@roomcraft/document";
+import { createEmptyProject, type Opening, type ProjectDocument } from "@roomcraft/document";
 import {
+  AddOpeningCommand,
   AddWallCommand,
   CommandHistory,
+  snapOpeningToWall,
   snapPlanPoint,
+  type OpeningWallPlacement,
   type PlanSnapResult,
 } from "@roomcraft/editor-core";
 import { projectLevel2D } from "@roomcraft/render-2d";
@@ -16,7 +19,7 @@ import {
 } from "react";
 
 type ViewMode = "2d" | "3d";
-type EditorTool = "wall" | null;
+type EditorTool = "wall" | "door" | "window" | null;
 type PlanPoint = PlanSnapResult["point"];
 
 interface WallDraft {
@@ -27,6 +30,11 @@ const VIEW_OPTIONS = [
   { value: "2d", label: "2D" },
   { value: "3d", label: "3D" },
 ] as const;
+
+const OPENING_PRESETS = {
+  door: { widthMm: 900, heightMm: 2100, sillHeightMm: 0 } as const,
+  window: { widthMm: 1200, heightMm: 1200, sillHeightMm: 900 } as const,
+};
 
 export function App() {
   const historyRef = useRef<CommandHistory | null>(null);
@@ -40,6 +48,7 @@ export function App() {
   const [activeTool, setActiveTool] = useState<EditorTool>("wall");
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
+  const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
 
   const level = document.levels[0];
   if (!level) {
@@ -67,18 +76,43 @@ export function App() {
     });
   }
 
+  function openingPlacement(point: PlanPoint): OpeningWallPlacement | null {
+    if (activeTool !== "door" && activeTool !== "window") return null;
+    const current = currentLevel();
+    if (!current) return null;
+    return snapOpeningToWall(point, current, {
+      widthMm: OPENING_PRESETS[activeTool].widthMm,
+    });
+  }
+
   function handlePlanPointerMove(point: PlanPoint) {
-    if (activeTool !== "wall") return;
-    setHoverSnap(snap(point));
+    if (activeTool === "wall") {
+      setHoverSnap(snap(point));
+      setOpeningHover(null);
+      return;
+    }
+
+    setHoverSnap(null);
+    setOpeningHover(openingPlacement(point));
   }
 
   function handlePlanPointerLeave() {
     setHoverSnap(null);
+    setOpeningHover(null);
   }
 
   function handlePlanPoint(point: PlanPoint) {
-    if (activeTool !== "wall") return;
+    if (activeTool === "wall") {
+      handleWallPoint(point);
+      return;
+    }
 
+    if (activeTool === "door" || activeTool === "window") {
+      handleOpeningPoint(point, activeTool);
+    }
+  }
+
+  function handleWallPoint(point: PlanPoint) {
     const snapped = snap(point);
     if (!snapped) return;
 
@@ -114,33 +148,57 @@ export function App() {
     setHoverSnap(chainedStart);
   }
 
-  function cancelDrawing() {
-    setWallDraft(null);
-    setHoverSnap(null);
+  function handleOpeningPoint(point: PlanPoint, tool: "door" | "window") {
+    const placement = openingPlacement(point);
+    if (!placement) return;
+
+    const preset = OPENING_PRESETS[tool];
+    const opening: Opening = {
+      id: createEntityId(tool),
+      wallId: placement.wallId,
+      type: tool,
+      offsetMm: placement.offsetMm,
+      widthMm: preset.widthMm,
+      heightMm: preset.heightMm,
+      sillHeightMm: preset.sillHeightMm,
+      flip: false,
+      swing: tool === "door" ? "left" : "none",
+    };
+
+    setDocument(history.execute(new AddOpeningCommand({ levelId, opening })));
+    setOpeningHover(null);
   }
 
-  function toggleWallTool() {
-    if (activeTool === "wall") {
+  function cancelTransient() {
+    setWallDraft(null);
+    setHoverSnap(null);
+    setOpeningHover(null);
+  }
+
+  function selectTool(tool: Exclude<EditorTool, null>) {
+    if (activeTool === tool) {
       setActiveTool(null);
-      cancelDrawing();
-    } else {
-      setActiveTool("wall");
-      setViewMode("2d");
+      cancelTransient();
+      return;
     }
+
+    cancelTransient();
+    setActiveTool(tool);
+    setViewMode("2d");
   }
 
   function changeView(mode: ViewMode) {
     setViewMode(mode);
-    if (mode !== "2d") cancelDrawing();
+    if (mode !== "2d") cancelTransient();
   }
 
   function undo() {
-    cancelDrawing();
+    cancelTransient();
     setDocument(history.undo());
   }
 
   function redo() {
-    cancelDrawing();
+    cancelTransient();
     setDocument(history.redo());
   }
 
@@ -172,13 +230,24 @@ export function App() {
         <aside className="tool-rail" aria-label="Drawing tools">
           <Button
             variant={activeTool === "wall" ? "primary" : "ghost"}
-            onClick={toggleWallTool}
+            onClick={() => selectTool("wall")}
             title="Draw connected walls"
           >
             Wall
           </Button>
-          <Button variant="ghost" disabled title="Door placement is not implemented yet">
+          <Button
+            variant={activeTool === "door" ? "primary" : "ghost"}
+            onClick={() => selectTool("door")}
+            title="Place a 900 mm door on a wall"
+          >
             Door
+          </Button>
+          <Button
+            variant={activeTool === "window" ? "primary" : "ghost"}
+            onClick={() => selectTool("window")}
+            title="Place a 1200 mm window on a wall"
+          >
+            Window
           </Button>
           <Button variant="ghost" disabled title="Furniture placement is not implemented yet">
             Furniture
@@ -189,15 +258,17 @@ export function App() {
           {viewMode === "2d" ? (
             <PlanCanvas
               walls={projection.walls}
-              wallToolActive={activeTool === "wall"}
+              openings={projection.openings}
+              activeTool={activeTool}
               draftStart={wallDraft?.start.point ?? null}
               draftEnd={wallDraft ? hoverSnap?.point ?? wallDraft.start.point : null}
               snapPoint={hoverSnap?.point ?? null}
               snapSource={hoverSnap?.source ?? null}
+              openingHover={openingHover}
               onPoint={handlePlanPoint}
               onPointerPosition={handlePlanPointerMove}
               onPointerLeave={handlePlanPointerLeave}
-              onCancel={cancelDrawing}
+              onCancel={cancelTransient}
             />
           ) : (
             <ThreeViewport document={document} levelId={levelId} />
@@ -218,6 +289,10 @@ export function App() {
                   <dd>{level.walls.length}</dd>
                 </div>
                 <div>
+                  <dt>Openings</dt>
+                  <dd>{level.openings.length}</dd>
+                </div>
+                <div>
                   <dt>Height</dt>
                   <dd>{level.defaultWallHeightMm} mm</dd>
                 </div>
@@ -225,23 +300,11 @@ export function App() {
                   <dt>Grid</dt>
                   <dd>{document.settings.gridSizeMm} mm</dd>
                 </div>
-                <div>
-                  <dt>Wall</dt>
-                  <dd>120 mm</dd>
-                </div>
               </dl>
 
               <div className="tool-status" aria-live="polite">
-                <strong>{viewMode === "3d" ? "3D view" : wallDraft ? "Continue wall" : "Draw wall"}</strong>
-                <span>
-                  {viewMode === "3d"
-                    ? "Drag to orbit. Scroll to zoom. The scene is derived from the same project document."
-                    : activeTool === "wall"
-                      ? wallDraft
-                        ? "Choose the next endpoint. Escape cancels the chain."
-                        : "Choose the first endpoint. Points snap to vertices and the grid."
-                      : "Select the Wall tool to start drawing."}
-                </span>
+                <strong>{toolTitle(viewMode, activeTool, wallDraft !== null)}</strong>
+                <span>{toolHelp(viewMode, activeTool, wallDraft !== null)}</span>
               </div>
             </div>
           </Panel>
@@ -253,11 +316,13 @@ export function App() {
 
 interface PlanCanvasProps {
   walls: ReturnType<typeof projectLevel2D>["walls"];
-  wallToolActive: boolean;
+  openings: ReturnType<typeof projectLevel2D>["openings"];
+  activeTool: EditorTool;
   draftStart: PlanPoint | null;
   draftEnd: PlanPoint | null;
   snapPoint: PlanPoint | null;
   snapSource: PlanSnapResult["source"] | null;
+  openingHover: OpeningWallPlacement | null;
   onPoint(point: PlanPoint): void;
   onPointerPosition(point: PlanPoint): void;
   onPointerLeave(): void;
@@ -266,11 +331,13 @@ interface PlanCanvasProps {
 
 function PlanCanvas({
   walls,
-  wallToolActive,
+  openings,
+  activeTool,
   draftStart,
   draftEnd,
   snapPoint,
   snapSource,
+  openingHover,
   onPoint,
   onPointerPosition,
   onPointerLeave,
@@ -286,7 +353,7 @@ function PlanCanvas({
 
   return (
     <svg
-      className={`plan-canvas${wallToolActive ? " plan-canvas--wall-tool" : ""}`}
+      className={`plan-canvas${activeTool ? " plan-canvas--tool-active" : ""}`}
       viewBox="-600 -600 5200 4200"
       role="application"
       aria-label="2D floor plan editor"
@@ -330,6 +397,26 @@ function PlanCanvas({
           strokeLinecap="square"
         />
       ))}
+      {openings.map((opening) => (
+        <g key={opening.id} pointerEvents="none">
+          <line
+            x1={opening.x1Mm}
+            y1={opening.y1Mm}
+            x2={opening.x2Mm}
+            y2={opening.y2Mm}
+            strokeWidth={opening.wallThicknessMm + 28}
+            className="plan-opening-cut"
+            strokeLinecap="butt"
+          />
+          <line
+            x1={opening.x1Mm}
+            y1={opening.y1Mm}
+            x2={opening.x2Mm}
+            y2={opening.y2Mm}
+            className={`plan-opening-symbol plan-opening-symbol--${opening.type}`}
+          />
+        </g>
+      ))}
       {draftStart && draftEnd ? (
         <line
           x1={draftStart.xMm}
@@ -348,6 +435,15 @@ function PlanCanvas({
           cy={snapPoint.yMm}
           r={snapSource === "vertex" ? 85 : 65}
           className={`snap-marker snap-marker--${snapSource ?? "grid"}`}
+          pointerEvents="none"
+        />
+      ) : null}
+      {openingHover ? (
+        <circle
+          cx={openingHover.point.xMm}
+          cy={openingHover.point.yMm}
+          r={75}
+          className="opening-marker"
           pointerEvents="none"
         />
       ) : null}
@@ -401,6 +497,26 @@ function endpointFromSnap(snap: PlanSnapResult) {
 
 function samePoint(a: PlanPoint, b: PlanPoint): boolean {
   return a.xMm === b.xMm && a.yMm === b.yMm;
+}
+
+function toolTitle(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean): string {
+  if (viewMode === "3d") return "3D view";
+  if (activeTool === "wall") return hasDraft ? "Continue wall" : "Draw wall";
+  if (activeTool === "door") return "Place door";
+  if (activeTool === "window") return "Place window";
+  return "Select a tool";
+}
+
+function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean): string {
+  if (viewMode === "3d") return "Drag to orbit. Scroll to zoom. Openings are cut from the same semantic walls.";
+  if (activeTool === "wall") {
+    return hasDraft
+      ? "Choose the next endpoint. Escape cancels the chain."
+      : "Choose the first endpoint. Points snap to vertices and the grid.";
+  }
+  if (activeTool === "door") return "Click near a wall to place a 900 × 2100 mm door.";
+  if (activeTool === "window") return "Click near a wall to place a 1200 × 1200 mm window with a 900 mm sill.";
+  return "Choose Wall, Door or Window.";
 }
 
 function createEntityId(prefix: string): string {
