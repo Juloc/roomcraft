@@ -1,0 +1,96 @@
+export const CURRENT_SCHEMA_VERSION = 1 as const;
+
+export type EntityId = string;
+export type Millimetres = number;
+
+export interface ProjectDocument {
+  schemaVersion: typeof CURRENT_SCHEMA_VERSION;
+  id: EntityId;
+  name: string;
+  settings: ProjectSettings;
+  levels: Level[];
+}
+
+export interface ProjectSettings {
+  unitSystem: "metric";
+  gridSizeMm: Millimetres;
+  angleSnapDeg: number;
+}
+
+export interface Level {
+  id: EntityId;
+  name: string;
+  elevationMm: Millimetres;
+  defaultWallHeightMm: Millimetres;
+  vertices: Vertex[];
+  walls: Wall[];
+  openings: Opening[];
+  objects: ObjectInstance[];
+}
+
+export interface Vertex {
+  id: EntityId;
+  xMm: Millimetres;
+  yMm: Millimetres;
+}
+
+export interface Wall {
+  id: EntityId;
+  startVertexId: EntityId;
+  endVertexId: EntityId;
+  thicknessMm: Millimetres;
+  heightMm: Millimetres | null;
+}
+
+export type OpeningType = "door" | "window" | "passage";
+
+export interface Opening {
+  id: EntityId;
+  wallId: EntityId;
+  type: OpeningType;
+  offsetMm: Millimetres;
+  widthMm: Millimetres;
+  heightMm: Millimetres;
+  sillHeightMm: Millimetres;
+  flip: boolean;
+  swing: "left" | "right" | "none";
+  catalogAssetId?: EntityId;
+}
+
+export interface ObjectInstance {
+  id: EntityId;
+  assetId: EntityId;
+  xMm: Millimetres;
+  yMm: Millimetres;
+  zMm: Millimetres;
+  rotationDeg: number;
+  widthMm: Millimetres;
+  depthMm: Millimetres;
+  heightMm: Millimetres;
+  locked: boolean;
+}
+
+export function createEmptyProject(id: EntityId, name = "Untitled project"): ProjectDocument {
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    id,
+    name,
+    settings: {
+      unitSystem: "metric",
+      gridSizeMm: 100,
+      angleSnapDeg: 15,
+    },
+    levels: [
+      {
+        id: "level_ground",
+        name: "Ground floor",
+        elevationMm: 0,
+        defaultWallHeightMm: 2500,
+        vertices: [],
+        walls: [],
+        openings: [],
+        objects: [],
+      },
+    ],
+  };
+}

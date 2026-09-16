@@ -1,0 +1,25 @@
+{
+  "name": "roomcraft",
+  "private": true,
+  "version": "0.0.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @roomcraft/web",
+    "build": "npm run build -w @roomcraft/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "format:check": "prettier --check .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "3.6.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}
