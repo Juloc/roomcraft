@@ -1,4 +1,11 @@
-import type { EntityId, Level, ProjectDocument, Vertex, Wall } from "@roomcraft/document";
+import type {
+  EntityId,
+  Level,
+  Opening,
+  ProjectDocument,
+  Vertex,
+  Wall,
+} from "@roomcraft/document";
 
 export interface CommandResult {
   document: ProjectDocument;
@@ -122,6 +129,78 @@ export class AddWallCommand implements EditorCommand {
   }
 }
 
+export interface AddOpeningInput {
+  levelId: EntityId;
+  opening: Opening;
+}
+
+export class AddOpeningCommand implements EditorCommand {
+  readonly type = "AddOpening";
+
+  constructor(private readonly input: AddOpeningInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    const opening = this.input.opening;
+
+    if (level.openings.some((candidate) => candidate.id === opening.id)) {
+      throw new Error(`Opening ${opening.id} already exists.`);
+    }
+
+    const wall = level.walls.find((candidate) => candidate.id === opening.wallId);
+    if (!wall) throw new Error(`Wall ${opening.wallId} does not exist.`);
+
+    validateOpeningGeometry(level, wall, opening);
+
+    const openingStartMm = opening.offsetMm - opening.widthMm / 2;
+    const openingEndMm = opening.offsetMm + opening.widthMm / 2;
+    for (const candidate of level.openings) {
+      if (candidate.wallId !== opening.wallId) continue;
+      const candidateStartMm = candidate.offsetMm - candidate.widthMm / 2;
+      const candidateEndMm = candidate.offsetMm + candidate.widthMm / 2;
+      if (openingStartMm < candidateEndMm && openingEndMm > candidateStartMm) {
+        throw new Error(`Opening ${opening.id} overlaps opening ${candidate.id}.`);
+      }
+    }
+
+    const nextLevel: Level = {
+      ...level,
+      openings: [...level.openings, opening],
+    };
+
+    return {
+      document: replaceLevel(document, nextLevel),
+      inverse: new RemoveOpeningCommand(this.input.levelId, opening),
+    };
+  }
+}
+
+class RemoveOpeningCommand implements EditorCommand {
+  readonly type = "RemoveOpening";
+
+  constructor(
+    private readonly levelId: EntityId,
+    private readonly opening: Opening,
+  ) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.levelId);
+    if (!level.openings.some((candidate) => candidate.id === this.opening.id)) {
+      throw new Error(`Opening ${this.opening.id} does not exist.`);
+    }
+
+    const nextLevel: Level = {
+      ...level,
+      openings: level.openings.filter((candidate) => candidate.id !== this.opening.id),
+    };
+
+    return {
+      document: replaceLevel(document, nextLevel),
+      inverse: new AddOpeningCommand({ levelId: this.levelId, opening: this.opening }),
+    };
+  }
+}
+
 class RemoveWallCommand implements EditorCommand {
   readonly type = "RemoveWall";
 
@@ -135,6 +214,9 @@ class RemoveWallCommand implements EditorCommand {
     const level = getLevel(document, this.levelId);
     if (!level.walls.some((candidate) => candidate.id === this.wall.id)) {
       throw new Error(`Wall ${this.wall.id} does not exist.`);
+    }
+    if (level.openings.some((opening) => opening.wallId === this.wall.id)) {
+      throw new Error(`Wall ${this.wall.id} still contains openings.`);
     }
 
     const remainingWalls = level.walls.filter((candidate) => candidate.id !== this.wall.id);
@@ -166,6 +248,39 @@ class RemoveWallCommand implements EditorCommand {
         heightMm: this.wall.heightMm,
       }),
     };
+  }
+}
+
+function validateOpeningGeometry(level: Level, wall: Wall, opening: Opening): void {
+  for (const [field, value] of [
+    ["offsetMm", opening.offsetMm],
+    ["widthMm", opening.widthMm],
+    ["heightMm", opening.heightMm],
+    ["sillHeightMm", opening.sillHeightMm],
+  ] as const) {
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(`Opening ${opening.id} ${field} must be an integer millimetre value.`);
+    }
+  }
+
+  if (opening.widthMm <= 0 || opening.heightMm <= 0 || opening.sillHeightMm < 0) {
+    throw new Error(`Opening ${opening.id} dimensions are invalid.`);
+  }
+
+  const start = level.vertices.find((vertex) => vertex.id === wall.startVertexId);
+  const end = level.vertices.find((vertex) => vertex.id === wall.endVertexId);
+  if (!start || !end) throw new Error(`Wall ${wall.id} references a missing vertex.`);
+
+  const wallLengthMm = Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm);
+  const wallHeightMm = wall.heightMm ?? level.defaultWallHeightMm;
+  const openingStartMm = opening.offsetMm - opening.widthMm / 2;
+  const openingEndMm = opening.offsetMm + opening.widthMm / 2;
+
+  if (openingStartMm < 0 || openingEndMm > wallLengthMm) {
+    throw new Error(`Opening ${opening.id} does not fit inside wall ${wall.id}.`);
+  }
+  if (opening.sillHeightMm + opening.heightMm > wallHeightMm) {
+    throw new Error(`Opening ${opening.id} exceeds wall ${wall.id} height.`);
   }
 }
 
