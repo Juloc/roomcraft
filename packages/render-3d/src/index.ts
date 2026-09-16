@@ -1,4 +1,4 @@
-import type { Level, ProjectDocument } from "@roomcraft/document";
+import type { Level, Opening, ProjectDocument, Vertex, Wall } from "@roomcraft/document";
 import { mmToMetres } from "@roomcraft/geometry";
 import {
   AmbientLight,
@@ -114,28 +114,137 @@ export class RoomSceneRenderer {
       const end = vertices.get(wall.endVertexId);
       if (!start || !end) continue;
 
-      const dxMm = end.xMm - start.xMm;
-      const dzMm = end.yMm - start.yMm;
-      const lengthMm = Math.hypot(dxMm, dzMm);
-      if (lengthMm <= 0) continue;
-
-      const heightMm = wall.heightMm ?? level.defaultWallHeightMm;
-      const geometry = new BoxGeometry(
-        mmToMetres(lengthMm),
-        mmToMetres(heightMm),
-        mmToMetres(wall.thicknessMm),
-      );
-      const mesh = new Mesh(geometry, this.wallMaterial);
-      mesh.name = wall.id;
-      mesh.userData.roomcraftId = wall.id;
-      mesh.position.set(
-        mmToMetres((start.xMm + end.xMm) / 2),
-        mmToMetres(heightMm) / 2,
-        mmToMetres((start.yMm + end.yMm) / 2),
-      );
-      mesh.rotation.y = -Math.atan2(dzMm, dxMm);
-      this.generated.add(mesh);
+      const openings = level.openings
+        .filter((opening) => opening.wallId === wall.id)
+        .sort((a, b) => a.offsetMm - b.offsetMm);
+      this.buildWall(level, wall, start, end, openings);
     }
+  }
+
+  private buildWall(
+    level: Level,
+    wall: Wall,
+    start: Vertex,
+    end: Vertex,
+    openings: Opening[],
+  ): void {
+    const dxMm = end.xMm - start.xMm;
+    const dzMm = end.yMm - start.yMm;
+    const lengthMm = Math.hypot(dxMm, dzMm);
+    if (lengthMm <= 0) return;
+
+    const wallHeightMm = wall.heightMm ?? level.defaultWallHeightMm;
+    const ux = dxMm / lengthMm;
+    const uz = dzMm / lengthMm;
+    const rotationY = -Math.atan2(dzMm, dxMm);
+    let cursorMm = 0;
+
+    for (const opening of openings) {
+      const openingStartMm = opening.offsetMm - opening.widthMm / 2;
+      const openingEndMm = opening.offsetMm + opening.widthMm / 2;
+      if (openingStartMm < cursorMm || openingEndMm > lengthMm) {
+        throw new Error(`Opening ${opening.id} is invalid for wall ${wall.id}.`);
+      }
+
+      this.addWallBlock(
+        level,
+        wall,
+        start,
+        ux,
+        uz,
+        rotationY,
+        cursorMm,
+        openingStartMm,
+        0,
+        wallHeightMm,
+        `solid-before-${opening.id}`,
+      );
+
+      if (opening.sillHeightMm > 0) {
+        this.addWallBlock(
+          level,
+          wall,
+          start,
+          ux,
+          uz,
+          rotationY,
+          openingStartMm,
+          openingEndMm,
+          0,
+          opening.sillHeightMm,
+          `sill-${opening.id}`,
+        );
+      }
+
+      const openingTopMm = opening.sillHeightMm + opening.heightMm;
+      if (openingTopMm < wallHeightMm) {
+        this.addWallBlock(
+          level,
+          wall,
+          start,
+          ux,
+          uz,
+          rotationY,
+          openingStartMm,
+          openingEndMm,
+          openingTopMm,
+          wallHeightMm,
+          `header-${opening.id}`,
+        );
+      }
+
+      cursorMm = openingEndMm;
+    }
+
+    this.addWallBlock(
+      level,
+      wall,
+      start,
+      ux,
+      uz,
+      rotationY,
+      cursorMm,
+      lengthMm,
+      0,
+      wallHeightMm,
+      "solid-end",
+    );
+  }
+
+  private addWallBlock(
+    level: Level,
+    wall: Wall,
+    start: Vertex,
+    ux: number,
+    uz: number,
+    rotationY: number,
+    startDistanceMm: number,
+    endDistanceMm: number,
+    bottomMm: number,
+    topMm: number,
+    part: string,
+  ): void {
+    const blockLengthMm = endDistanceMm - startDistanceMm;
+    const blockHeightMm = topMm - bottomMm;
+    if (blockLengthMm <= 0 || blockHeightMm <= 0) return;
+
+    const centerDistanceMm = (startDistanceMm + endDistanceMm) / 2;
+    const geometry = new BoxGeometry(
+      mmToMetres(blockLengthMm),
+      mmToMetres(blockHeightMm),
+      mmToMetres(wall.thicknessMm),
+    );
+    const mesh = new Mesh(geometry, this.wallMaterial);
+    mesh.name = `${wall.id}:${part}`;
+    mesh.userData.roomcraftId = wall.id;
+    mesh.userData.roomcraftPart = part;
+    mesh.position.set(
+      mmToMetres(start.xMm + ux * centerDistanceMm),
+      mmToMetres(level.elevationMm + bottomMm + blockHeightMm / 2),
+      mmToMetres(start.yMm + uz * centerDistanceMm),
+    );
+    mesh.rotation.y = rotationY;
+    this.generated.add(mesh);
   }
 
   private frameLevel(level: Level): void {
@@ -158,12 +267,12 @@ export class RoomSceneRenderer {
       maxZ = Math.max(maxZ, mmToMetres(vertex.yMm));
     }
 
-    const center = new Vector3((minX + maxX) / 2, 0.8, (minZ + maxZ) / 2);
+    const center = new Vector3((minX + maxX) / 2, mmToMetres(level.elevationMm) + 0.8, (minZ + maxZ) / 2);
     const span = Math.max(maxX - minX, maxZ - minZ, 2);
     const distance = Math.max(4.5, span * 1.45);
 
     this.controls.target.copy(center);
-    this.camera.position.set(center.x + distance, distance * 0.85, center.z + distance);
+    this.camera.position.set(center.x + distance, center.y + distance * 0.85, center.z + distance);
     this.camera.lookAt(center);
     this.controls.update();
   }

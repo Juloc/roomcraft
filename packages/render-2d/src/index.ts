@@ -1,4 +1,4 @@
-import type { EntityId, ProjectDocument } from "@roomcraft/document";
+import type { EntityId, OpeningType, ProjectDocument } from "@roomcraft/document";
 
 export interface ProjectedWall2D {
   id: EntityId;
@@ -9,9 +9,26 @@ export interface ProjectedWall2D {
   thicknessMm: number;
 }
 
+export interface ProjectedOpening2D {
+  id: EntityId;
+  wallId: EntityId;
+  type: OpeningType;
+  x1Mm: number;
+  y1Mm: number;
+  x2Mm: number;
+  y2Mm: number;
+  centerXmm: number;
+  centerYmm: number;
+  widthMm: number;
+  wallThicknessMm: number;
+  flip: boolean;
+  swing: "left" | "right" | "none";
+}
+
 export interface PlanProjection2D {
   levelId: EntityId;
   walls: ProjectedWall2D[];
+  openings: ProjectedOpening2D[];
 }
 
 export function projectLevel2D(document: ProjectDocument, levelId: EntityId): PlanProjection2D {
@@ -19,22 +36,57 @@ export function projectLevel2D(document: ProjectDocument, levelId: EntityId): Pl
   if (!level) throw new Error(`Level ${levelId} does not exist.`);
 
   const vertices = new Map(level.vertices.map((vertex) => [vertex.id, vertex]));
+  const wallById = new Map(level.walls.map((wall) => [wall.id, wall]));
 
-  return {
-    levelId,
-    walls: level.walls.map((wall) => {
-      const start = vertices.get(wall.startVertexId);
-      const end = vertices.get(wall.endVertexId);
-      if (!start || !end) throw new Error(`Wall ${wall.id} references a missing vertex.`);
+  const walls = level.walls.map((wall) => {
+    const start = vertices.get(wall.startVertexId);
+    const end = vertices.get(wall.endVertexId);
+    if (!start || !end) throw new Error(`Wall ${wall.id} references a missing vertex.`);
 
-      return {
-        id: wall.id,
-        x1Mm: start.xMm,
-        y1Mm: start.yMm,
-        x2Mm: end.xMm,
-        y2Mm: end.yMm,
-        thicknessMm: wall.thicknessMm,
-      };
-    }),
-  };
+    return {
+      id: wall.id,
+      x1Mm: start.xMm,
+      y1Mm: start.yMm,
+      x2Mm: end.xMm,
+      y2Mm: end.yMm,
+      thicknessMm: wall.thicknessMm,
+    } satisfies ProjectedWall2D;
+  });
+
+  const openings = level.openings.map((opening) => {
+    const wall = wallById.get(opening.wallId);
+    if (!wall) throw new Error(`Opening ${opening.id} references a missing wall.`);
+    const start = vertices.get(wall.startVertexId);
+    const end = vertices.get(wall.endVertexId);
+    if (!start || !end) throw new Error(`Wall ${wall.id} references a missing vertex.`);
+
+    const dx = end.xMm - start.xMm;
+    const dy = end.yMm - start.yMm;
+    const wallLengthMm = Math.hypot(dx, dy);
+    if (wallLengthMm <= 0) throw new Error(`Wall ${wall.id} has zero length.`);
+
+    const ux = dx / wallLengthMm;
+    const uy = dy / wallLengthMm;
+    const halfWidthMm = opening.widthMm / 2;
+    const openingStartMm = opening.offsetMm - halfWidthMm;
+    const openingEndMm = opening.offsetMm + halfWidthMm;
+
+    return {
+      id: opening.id,
+      wallId: opening.wallId,
+      type: opening.type,
+      x1Mm: start.xMm + ux * openingStartMm,
+      y1Mm: start.yMm + uy * openingStartMm,
+      x2Mm: start.xMm + ux * openingEndMm,
+      y2Mm: start.yMm + uy * openingEndMm,
+      centerXmm: start.xMm + ux * opening.offsetMm,
+      centerYmm: start.yMm + uy * opening.offsetMm,
+      widthMm: opening.widthMm,
+      wallThicknessMm: wall.thicknessMm,
+      flip: opening.flip,
+      swing: opening.swing,
+    } satisfies ProjectedOpening2D;
+  });
+
+  return { levelId, walls, openings };
 }

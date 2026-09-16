@@ -40,4 +40,68 @@ describe("project document validation", () => {
       "Wall wall_a references a missing vertex.",
     );
   });
+
+  it("accepts an opening whose offset is the centre distance from the wall start", () => {
+    const document = createEmptyProject("project_test");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    level.vertices.push(
+      { id: "vertex_a", xMm: 0, yMm: 0 },
+      { id: "vertex_b", xMm: 4000, yMm: 0 },
+    );
+    level.walls.push({
+      id: "wall_a",
+      startVertexId: "vertex_a",
+      endVertexId: "vertex_b",
+      thicknessMm: 120,
+      heightMm: null,
+    });
+    level.openings.push({
+      id: "door_a",
+      wallId: "wall_a",
+      type: "door",
+      offsetMm: 2000,
+      widthMm: 900,
+      heightMm: 2100,
+      sillHeightMm: 0,
+      flip: false,
+      swing: "left",
+    });
+
+    expect(() => validateProjectDocument(document)).not.toThrow();
+  });
+
+  it("rejects an opening that extends beyond a wall endpoint", () => {
+    const document = createEmptyProject("project_test");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    level.vertices.push(
+      { id: "vertex_a", xMm: 0, yMm: 0 },
+      { id: "vertex_b", xMm: 4000, yMm: 0 },
+    );
+    level.walls.push({
+      id: "wall_a",
+      startVertexId: "vertex_a",
+      endVertexId: "vertex_b",
+      thicknessMm: 120,
+      heightMm: null,
+    });
+    level.openings.push({
+      id: "door_a",
+      wallId: "wall_a",
+      type: "door",
+      offsetMm: 200,
+      widthMm: 900,
+      heightMm: 2100,
+      sillHeightMm: 0,
+      flip: false,
+      swing: "left",
+    });
+
+    expect(() => validateProjectDocument(document)).toThrow(
+      "Opening door_a does not fit inside wall wall_a.",
+    );
+  });
 });
