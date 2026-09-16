@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/server/RoomCraft.Host/RoomCraft.Host.csproj" />
+  <Project Path="src/server/RoomCraft.SharedKernel/RoomCraft.SharedKernel.csproj" />
+</Solution>
