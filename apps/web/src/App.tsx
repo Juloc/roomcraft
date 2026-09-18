@@ -4,12 +4,19 @@ import {
   AddWallCommand,
   EMPTY_SELECTION,
   SetWallLengthCommand,
+  DEFAULT_PLAN_CAMERA,
+  fitPlanCamera,
+  panPlanCamera,
+  planViewBox,
   selectOnly,
   snapOpeningToWall,
+  zoomPlanCameraAt,
   snapPlanPoint,
   type EditorSelection,
   type OpeningWallPlacement,
+  type PlanCamera2D,
   type PlanSnapResult,
+  type ViewportSizePx,
 } from "@roomcraft/editor-core";
 import { projectLevel2D } from "@roomcraft/render-2d";
 import { RoomSceneRenderer } from "@roomcraft/render-3d";
@@ -443,189 +450,296 @@ function PlanCanvas({
   onPointerLeave,
   onCancel,
 }: PlanCanvasProps) {
-  function pointerPoint(event: ReactPointerEvent<SVGSVGElement>): PlanPoint | null {
-    const matrix = event.currentTarget.getScreenCTM();
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const panRef = useRef<{
+    pointerId: number;
+    lastClientX: number;
+    lastClientY: number;
+  } | null>(null);
+  const [camera, setCamera] = useState<PlanCamera2D>({ ...DEFAULT_PLAN_CAMERA });
+  const [viewportSize, setViewportSize] = useState<ViewportSizePx>({
+    width: 1040,
+    height: 840,
+  });
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    const updateSize = () => {
+      setViewportSize({
+        width: Math.max(1, svg.clientWidth),
+        height: Math.max(1, svg.clientHeight),
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, []);
+
+  const viewBox = planViewBox(camera, viewportSize);
+
+  function clientToPlan(
+    svg: SVGSVGElement,
+    clientX: number,
+    clientY: number,
+  ): PlanPoint | null {
+    const matrix = svg.getScreenCTM();
     if (!matrix) return null;
 
-    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    const point = new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse());
     return { xMm: point.x, yMm: point.y };
   }
 
+  function beginPan(event: ReactPointerEvent<SVGSVGElement>) {
+    event.preventDefault();
+    event.currentTarget.focus();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    panRef.current = {
+      pointerId: event.pointerId,
+      lastClientX: event.clientX,
+      lastClientY: event.clientY,
+    };
+  }
+
+  function endPan(event: ReactPointerEvent<SVGSVGElement>) {
+    if (panRef.current?.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    panRef.current = null;
+  }
+
+  function fitPlan() {
+    const points = walls.flatMap((wall) => [
+      { xMm: wall.x1Mm, yMm: wall.y1Mm },
+      { xMm: wall.x2Mm, yMm: wall.y2Mm },
+    ]);
+    setCamera(fitPlanCamera(points, viewportSize));
+  }
+
   return (
-    <svg
-      className={`plan-canvas${activeTool === "select" ? "" : " plan-canvas--tool-active"}`}
-      viewBox="-600 -600 5200 4200"
-      role="application"
-      aria-label="2D floor plan editor"
-      tabIndex={0}
-      onPointerMove={(event) => {
-        const point = pointerPoint(event);
-        if (point) onPointerPosition(point);
-      }}
-      onPointerDown={(event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        event.currentTarget.focus();
+    <div className="plan-viewport">
+      <svg
+        ref={svgRef}
+        className={`plan-canvas${activeTool === "select" ? "" : " plan-canvas--tool-active"}`}
+        viewBox={`${viewBox.xMm} ${viewBox.yMm} ${viewBox.widthMm} ${viewBox.heightMm}`}
+        role="application"
+        aria-label="2D floor plan editor"
+        tabIndex={0}
+        onWheel={(event) => {
+          event.preventDefault();
+          const anchor = clientToPlan(
+            event.currentTarget,
+            event.clientX,
+            event.clientY,
+          );
+          if (!anchor) return;
 
-        if (activeTool === "select") {
-          onClearSelection();
-          return;
-        }
+          const boundedDelta = Math.max(-240, Math.min(240, event.deltaY));
+          const scale = Math.exp(boundedDelta * 0.0018);
+          setCamera((current) => zoomPlanCameraAt(current, anchor, scale));
+        }}
+        onPointerMove={(event) => {
+          const pan = panRef.current;
+          if (pan?.pointerId === event.pointerId) {
+            const xPx = event.clientX - pan.lastClientX;
+            const yPx = event.clientY - pan.lastClientY;
+            pan.lastClientX = event.clientX;
+            pan.lastClientY = event.clientY;
+            setCamera((current) => panPlanCamera(current, { xPx, yPx }));
+            return;
+          }
 
-        const point = pointerPoint(event);
-        if (!point) return;
-        onPoint(point);
-      }}
-      onPointerLeave={onPointerLeave}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onCancel();
-      }}
-    >
-      <defs>
-        <pattern id="minor-grid" width="100" height="100" patternUnits="userSpaceOnUse">
-          <path d="M 100 0 L 0 0 0 100" className="grid-line grid-line--minor" />
-        </pattern>
-        <pattern id="major-grid" width="500" height="500" patternUnits="userSpaceOnUse">
-          <rect width="500" height="500" fill="url(#minor-grid)" />
-          <path d="M 500 0 L 0 0 0 500" className="grid-line grid-line--major" />
-        </pattern>
-      </defs>
-      <rect x="-600" y="-600" width="5200" height="4200" fill="url(#major-grid)" />
-      {rooms.map((room) => (
-        <g key={room.key} className="plan-room" pointerEvents="none">
-          <polygon
-            points={room.points.map((point) => `${point.xMm},${point.yMm}`).join(" ")}
-            className="plan-room__fill"
-          />
-          <text
-            x={room.centerXmm}
-            y={room.centerYmm}
-            className="plan-room__label"
-            textAnchor="middle"
-            dominantBaseline="middle"
-          >
-            {formatAreaSquareMetres(room.areaMm2)} m²
-          </text>
-        </g>
-      ))}
-      {walls.map((wall) => {
-        const selected = wall.id === selectedWallId;
-        const dimension = wallDimensionPosition(wall);
+          const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
+          if (point) onPointerPosition(point);
+        }}
+        onPointerDown={(event) => {
+          const shouldPan =
+            event.button === 1 || (activeTool === "select" && event.button === 0);
+          if (shouldPan) {
+            if (activeTool === "select" && event.button === 0) onClearSelection();
+            beginPan(event);
+            return;
+          }
 
-        return (
-          <g key={wall.id}>
-            <line
-              x1={wall.x1Mm}
-              y1={wall.y1Mm}
-              x2={wall.x2Mm}
-              y2={wall.y2Mm}
-              strokeWidth={Math.max(wall.thicknessMm + 260, 320)}
-              className="plan-wall-hit"
-              strokeLinecap="square"
-              onPointerDown={(event) => {
-                if (activeTool !== "select" || event.button !== 0) return;
-                event.preventDefault();
-                event.stopPropagation();
-                onSelectWall(wall.id);
-              }}
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.focus();
+
+          const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
+          if (!point) return;
+          onPoint(point);
+        }}
+        onPointerUp={endPan}
+        onPointerCancel={endPan}
+        onPointerLeave={() => {
+          if (!panRef.current) onPointerLeave();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onCancel();
+        }}
+      >
+        <defs>
+          <pattern id="minor-grid" width="100" height="100" patternUnits="userSpaceOnUse">
+            <path d="M 100 0 L 0 0 0 100" className="grid-line grid-line--minor" />
+          </pattern>
+          <pattern id="major-grid" width="500" height="500" patternUnits="userSpaceOnUse">
+            <rect width="500" height="500" fill="url(#minor-grid)" />
+            <path d="M 500 0 L 0 0 0 500" className="grid-line grid-line--major" />
+          </pattern>
+        </defs>
+        <rect
+          x={viewBox.xMm}
+          y={viewBox.yMm}
+          width={viewBox.widthMm}
+          height={viewBox.heightMm}
+          fill="url(#major-grid)"
+        />
+        {rooms.map((room) => (
+          <g key={room.key} className="plan-room" pointerEvents="none">
+            <polygon
+              points={room.points.map((point) => `${point.xMm},${point.yMm}`).join(" ")}
+              className="plan-room__fill"
             />
-            <line
-              x1={wall.x1Mm}
-              y1={wall.y1Mm}
-              x2={wall.x2Mm}
-              y2={wall.y2Mm}
-              strokeWidth={wall.thicknessMm}
-              className={`plan-wall${selected ? " plan-wall--selected" : ""}`}
-              strokeLinecap="square"
-              pointerEvents="none"
-            />
-            {selected ? (
-              <text
-                x={dimension.xMm}
-                y={dimension.yMm}
-                className="wall-dimension-label"
-                textAnchor="middle"
-                dominantBaseline="middle"
-                pointerEvents="none"
-              >
-                {Math.round(wall.lengthMm)} mm
-              </text>
-            ) : null}
+            <text
+              x={room.centerXmm}
+              y={room.centerYmm}
+              className="plan-room__label"
+              textAnchor="middle"
+              dominantBaseline="middle"
+            >
+              {formatAreaSquareMetres(room.areaMm2)} m²
+            </text>
           </g>
-        );
-      })}
-      {openings.map((opening) => (
-        <g key={opening.id} pointerEvents="none">
+        ))}
+        {walls.map((wall) => {
+          const selected = wall.id === selectedWallId;
+          const dimension = wallDimensionPosition(wall);
+
+          return (
+            <g key={wall.id}>
+              <line
+                x1={wall.x1Mm}
+                y1={wall.y1Mm}
+                x2={wall.x2Mm}
+                y2={wall.y2Mm}
+                strokeWidth={Math.max(wall.thicknessMm + 40, camera.mmPerPixel * 28)}
+                className="plan-wall-hit"
+                strokeLinecap="square"
+                onPointerDown={(event) => {
+                  if (activeTool !== "select" || event.button !== 0) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onSelectWall(wall.id);
+                }}
+              />
+              <line
+                x1={wall.x1Mm}
+                y1={wall.y1Mm}
+                x2={wall.x2Mm}
+                y2={wall.y2Mm}
+                strokeWidth={wall.thicknessMm}
+                className={`plan-wall${selected ? " plan-wall--selected" : ""}`}
+                strokeLinecap="square"
+                pointerEvents="none"
+              />
+              {selected ? (
+                <text
+                  x={dimension.xMm}
+                  y={dimension.yMm}
+                  className="wall-dimension-label"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  pointerEvents="none"
+                >
+                  {Math.round(wall.lengthMm)} mm
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
+        {openings.map((opening) => (
+          <g key={opening.id} pointerEvents="none">
+            <line
+              x1={opening.x1Mm}
+              y1={opening.y1Mm}
+              x2={opening.x2Mm}
+              y2={opening.y2Mm}
+              strokeWidth={opening.wallThicknessMm + 28}
+              className="plan-opening-cut"
+              strokeLinecap="butt"
+            />
+            <line
+              x1={opening.x1Mm}
+              y1={opening.y1Mm}
+              x2={opening.x2Mm}
+              y2={opening.y2Mm}
+              className={`plan-opening-symbol plan-opening-symbol--${opening.type}`}
+            />
+          </g>
+        ))}
+        {draftStart && draftEnd ? (
           <line
-            x1={opening.x1Mm}
-            y1={opening.y1Mm}
-            x2={opening.x2Mm}
-            y2={opening.y2Mm}
-            strokeWidth={opening.wallThicknessMm + 28}
-            className="plan-opening-cut"
-            strokeLinecap="butt"
+            x1={draftStart.xMm}
+            y1={draftStart.yMm}
+            x2={draftEnd.xMm}
+            y2={draftEnd.yMm}
+            strokeWidth={120}
+            className="plan-wall-preview"
+            strokeLinecap="square"
+            pointerEvents="none"
           />
-          <line
-            x1={opening.x1Mm}
-            y1={opening.y1Mm}
-            x2={opening.x2Mm}
-            y2={opening.y2Mm}
-            className={`plan-opening-symbol plan-opening-symbol--${opening.type}`}
+        ) : null}
+        {snapPoint ? (
+          <circle
+            cx={snapPoint.xMm}
+            cy={snapPoint.yMm}
+            r={snapSource === "vertex" ? 85 : 65}
+            className={`snap-marker snap-marker--${snapSource ?? "grid"}`}
+            pointerEvents="none"
           />
-        </g>
-      ))}
-      {draftStart && draftEnd ? (
-        <line
-          x1={draftStart.xMm}
-          y1={draftStart.yMm}
-          x2={draftEnd.xMm}
-          y2={draftEnd.yMm}
-          strokeWidth={120}
-          className="plan-wall-preview"
-          strokeLinecap="square"
-          pointerEvents="none"
-        />
-      ) : null}
-      {snapPoint ? (
-        <circle
-          cx={snapPoint.xMm}
-          cy={snapPoint.yMm}
-          r={snapSource === "vertex" ? 85 : 65}
-          className={`snap-marker snap-marker--${snapSource ?? "grid"}`}
-          pointerEvents="none"
-        />
-      ) : null}
-      {openingHover ? (
-        <circle
-          cx={openingHover.point.xMm}
-          cy={openingHover.point.yMm}
-          r={75}
-          className="opening-marker"
-          pointerEvents="none"
-        />
-      ) : null}
-      {topologyIssues.map((issue, index) => (
-        <g
-          key={`${issue.type}:${issue.edgeIds.join(":")}:${index}`}
-          className="topology-issue"
-          pointerEvents="none"
-        >
-          <circle cx={issue.point.xMm} cy={issue.point.yMm} r={105} />
-          <line
-            x1={issue.point.xMm - 55}
-            y1={issue.point.yMm - 55}
-            x2={issue.point.xMm + 55}
-            y2={issue.point.yMm + 55}
+        ) : null}
+        {openingHover ? (
+          <circle
+            cx={openingHover.point.xMm}
+            cy={openingHover.point.yMm}
+            r={75}
+            className="opening-marker"
+            pointerEvents="none"
           />
-          <line
-            x1={issue.point.xMm + 55}
-            y1={issue.point.yMm - 55}
-            x2={issue.point.xMm - 55}
-            y2={issue.point.yMm + 55}
-          />
-        </g>
-      ))}
-    </svg>
+        ) : null}
+        {topologyIssues.map((issue, index) => (
+          <g
+            key={`${issue.type}:${issue.edgeIds.join(":")}:${index}`}
+            className="topology-issue"
+            pointerEvents="none"
+          >
+            <circle cx={issue.point.xMm} cy={issue.point.yMm} r={105} />
+            <line
+              x1={issue.point.xMm - 55}
+              y1={issue.point.yMm - 55}
+              x2={issue.point.xMm + 55}
+              y2={issue.point.yMm + 55}
+            />
+            <line
+              x1={issue.point.xMm + 55}
+              y1={issue.point.yMm - 55}
+              x2={issue.point.xMm - 55}
+              y2={issue.point.yMm + 55}
+            />
+          </g>
+        ))}
+      </svg>
+
+      <div className="plan-viewport__controls">
+        <Button variant="secondary" onClick={fitPlan} title="Fit the complete plan in view">
+          Fit
+        </Button>
+      </div>
+    </div>
   );
 }
 
