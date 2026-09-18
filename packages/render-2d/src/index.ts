@@ -7,6 +7,7 @@ export interface ProjectedWall2D {
   y1Mm: number;
   x2Mm: number;
   y2Mm: number;
+  lengthMm: number;
   thicknessMm: number;
 }
 
@@ -61,6 +62,7 @@ export function projectLevel2D(document: ProjectDocument, levelId: EntityId): Pl
       y1Mm: start.yMm,
       x2Mm: end.xMm,
       y2Mm: end.yMm,
+      lengthMm: Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm),
       thicknessMm: wall.thicknessMm,
     } satisfies ProjectedWall2D;
   });

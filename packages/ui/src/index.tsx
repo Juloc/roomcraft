@@ -52,3 +52,7 @@ export function Panel({ children }: PropsWithChildren) {
 export function Toolbar({ children }: PropsWithChildren) {
   return <div className="rc-toolbar">{children}</div>;
 }
+
+export { LengthField } from "./LengthField";
+export type { LengthFieldProps } from "./LengthField";
+export { formatLengthInput, parseLengthInput } from "./length";

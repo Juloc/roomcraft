@@ -152,8 +152,28 @@ body {
   letter-spacing: 0.01em;
 }
 
+.plan-wall-hit {
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
 .plan-wall {
   stroke: var(--rc-text);
+}
+
+.plan-wall--selected {
+  stroke: var(--rc-accent);
+}
+
+.wall-dimension-label {
+  fill: var(--rc-text);
+  stroke: var(--rc-surface);
+  stroke-width: 18;
+  paint-order: stroke fill;
+  font-size: 155px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .topology-issue circle {
@@ -259,6 +279,13 @@ body {
   color: var(--rc-text-muted);
   font-size: 0.8rem;
   line-height: 1.45;
+}
+
+.selection-properties {
+  display: grid;
+  gap: var(--rc-space-3);
+  padding-top: var(--rc-space-4);
+  border-top: 1px solid var(--rc-border);
 }
 
 .tool-status {

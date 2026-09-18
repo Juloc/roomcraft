@@ -28,8 +28,14 @@ export class RoomSceneRenderer {
     roughness: 0.82,
     metalness: 0,
   });
+  private readonly selectedWallMaterial = new MeshStandardMaterial({
+    color: new Color(0x5f86f2),
+    roughness: 0.72,
+    metalness: 0,
+  });
   private readonly resizeObserver: ResizeObserver;
   private readonly grid: GridHelper;
+  private selectedId: string | null = null;
   private disposed = false;
 
   constructor(private readonly container: HTMLElement) {
@@ -76,6 +82,19 @@ export class RoomSceneRenderer {
     this.render();
   }
 
+  setSelection(id: string | null): void {
+    this.assertActive();
+    this.selectedId = id;
+
+    for (const child of this.generated.children) {
+      if (!(child instanceof Mesh)) continue;
+      child.material =
+        child.userData.roomcraftId === id ? this.selectedWallMaterial : this.wallMaterial;
+    }
+
+    this.render();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -85,6 +104,7 @@ export class RoomSceneRenderer {
     this.controls.dispose();
     this.clearGenerated();
     this.wallMaterial.dispose();
+    this.selectedWallMaterial.dispose();
     this.grid.geometry.dispose();
     disposeMaterials(this.grid.material);
     this.renderer.dispose();
@@ -234,7 +254,10 @@ export class RoomSceneRenderer {
       mmToMetres(blockHeightMm),
       mmToMetres(wall.thicknessMm),
     );
-    const mesh = new Mesh(geometry, this.wallMaterial);
+    const mesh = new Mesh(
+      geometry,
+      this.selectedId === wall.id ? this.selectedWallMaterial : this.wallMaterial,
+    );
     mesh.name = `${wall.id}:${part}`;
     mesh.userData.roomcraftId = wall.id;
     mesh.userData.roomcraftPart = part;

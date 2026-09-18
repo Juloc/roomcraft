@@ -61,7 +61,7 @@ Goal: accurately create the apartment shell.
 - 2D projection
 - real 3D wall holes
 
-### 1.3 Automatic room detection 🚧
+### 1.3 Automatic room detection ✅
 - derive closed planar faces from wall topology
 - ignore the unbounded outside face
 - deterministic room IDs/keys derived from geometry, not random runtime state
@@ -76,7 +76,7 @@ Definition of done:
 - deleting/breaking a boundary removes the derived room
 - room calculation is unit-tested independently of React/Three.js
 
-### 1.4 Exact wall editing ⬜
+### 1.4 Exact wall editing 🚧
 - wall/segment selection
 - visible dimension label
 - edit exact length via shared `LengthField`
@@ -84,7 +84,7 @@ Definition of done:
 - sensible behavior for connected walls
 - angle display/edit where useful
 
-### 1.5 Selection model ⬜
+### 1.5 Selection model 🚧
 - stable selected RoomCraft IDs
 - wall/opening/room/object selection
 - shared 2D/3D selection
@@ -329,7 +329,7 @@ Walls ✅
    ↓
 Doors / Windows ✅
    ↓
-Room Detection 🚧
+Room Detection ✅
    ↓
 Selection + Exact Dimensions
    ↓
