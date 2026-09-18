@@ -1,4 +1,4 @@
-import type { Level, Opening, ProjectDocument, Wall } from "./schema";
+import { CURRENT_SCHEMA_VERSION, type Level, type Opening, type ProjectDocument, type Wall } from "./schema";
 
 export function assertIntegerMillimetres(value: number, field: string): void {
   if (!Number.isSafeInteger(value)) {
@@ -7,7 +7,7 @@ export function assertIntegerMillimetres(value: number, field: string): void {
 }
 
 export function validateProjectDocument(document: ProjectDocument): void {
-  if (document.schemaVersion !== 1) {
+  if (document.schemaVersion !== CURRENT_SCHEMA_VERSION) {
     throw new Error(`Unsupported schema version: ${document.schemaVersion}`);
   }
 
@@ -37,7 +37,30 @@ export function validateProjectDocument(document: ProjectDocument): void {
       validateOpening(level, wall, opening, vertexById);
     }
 
-    for (let index = 0; index < level.openings.length; index += 1) {
+    for (const blueprint of level.blueprints) {
+      if (!blueprint.id || !blueprint.assetId) {
+        throw new Error("Blueprint id and assetId are required.");
+      }
+      if (!Number.isSafeInteger(blueprint.sourceWidthPx) || blueprint.sourceWidthPx <= 0) {
+        throw new Error(`Blueprint ${blueprint.id} sourceWidthPx must be a positive integer.`);
+      }
+      if (!Number.isSafeInteger(blueprint.sourceHeightPx) || blueprint.sourceHeightPx <= 0) {
+        throw new Error(`Blueprint ${blueprint.id} sourceHeightPx must be a positive integer.`);
+      }
+      assertIntegerMillimetres(blueprint.originXmm, "blueprint.originXmm");
+      assertIntegerMillimetres(blueprint.originYmm, "blueprint.originYmm");
+      if (!Number.isFinite(blueprint.millimetresPerPixel) || blueprint.millimetresPerPixel <= 0) {
+        throw new Error(`Blueprint ${blueprint.id} millimetresPerPixel must be positive and finite.`);
+      }
+      if (!Number.isFinite(blueprint.rotationDeg)) {
+        throw new Error(`Blueprint ${blueprint.id} rotationDeg must be finite.`);
+      }
+      if (!Number.isFinite(blueprint.opacity) || blueprint.opacity < 0 || blueprint.opacity > 1) {
+        throw new Error(`Blueprint ${blueprint.id} opacity must be between 0 and 1.`);
+      }
+    }
+
+        for (let index = 0; index < level.openings.length; index += 1) {
       const opening = level.openings[index];
       if (!opening) continue;
       const openingStartMm = opening.offsetMm - opening.widthMm / 2;
