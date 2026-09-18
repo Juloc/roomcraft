@@ -453,7 +453,7 @@ function PlanCanvas({
 
   return (
     <svg
-      className={`plan-canvas${activeTool ? " plan-canvas--tool-active" : ""}`}
+      className={`plan-canvas${activeTool === "select" ? "" : " plan-canvas--tool-active"}`}
       viewBox="-600 -600 5200 4200"
       role="application"
       aria-label="2D floor plan editor"
