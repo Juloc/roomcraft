@@ -2,14 +2,18 @@ import { createEmptyProject, type Opening, type ProjectDocument } from "@roomcra
 import {
   AddOpeningCommand,
   AddWallCommand,
+  EMPTY_SELECTION,
+  SetWallLengthCommand,
+  selectOnly,
   snapOpeningToWall,
   snapPlanPoint,
+  type EditorSelection,
   type OpeningWallPlacement,
   type PlanSnapResult,
 } from "@roomcraft/editor-core";
 import { projectLevel2D } from "@roomcraft/render-2d";
 import { RoomSceneRenderer } from "@roomcraft/render-3d";
-import { Button, Panel, SegmentedControl, Toolbar } from "@roomcraft/ui";
+import { Button, LengthField, Panel, SegmentedControl, Toolbar } from "@roomcraft/ui";
 import {
   useEffect,
   useRef,
@@ -19,7 +23,7 @@ import {
 import { useProjectSession, type SaveState } from "./use-project-session";
 
 type ViewMode = "2d" | "3d";
-type EditorTool = "wall" | "door" | "window" | null;
+type EditorTool = "select" | "wall" | "door" | "window";
 type PlanPoint = PlanSnapResult["point"];
 
 interface WallDraft {
@@ -45,7 +49,8 @@ export function App() {
   const { document, revision, saveState, saveError } = session;
 
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
-  const [activeTool, setActiveTool] = useState<EditorTool>("wall");
+  const [activeTool, setActiveTool] = useState<EditorTool>("select");
+  const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
   const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
@@ -71,6 +76,15 @@ export function App() {
 
   const levelId = level.id;
   const projection = projectLevel2D(document, levelId);
+  const selectedWallId =
+    selection.primary?.kind === "wall" &&
+    projection.walls.some((wall) => wall.id === selection.primary?.id)
+      ? selection.primary.id
+      : null;
+  const selectedWall =
+    selectedWallId === null
+      ? null
+      : projection.walls.find((wall) => wall.id === selectedWallId) ?? null;
 
   function currentLevel() {
     return document.levels.find((candidate) => candidate.id === levelId) ?? null;
@@ -95,6 +109,12 @@ export function App() {
   }
 
   function handlePlanPointerMove(point: PlanPoint) {
+    if (activeTool === "select") {
+      setHoverSnap(null);
+      setOpeningHover(null);
+      return;
+    }
+
     if (activeTool === "wall") {
       setHoverSnap(snap(point));
       setOpeningHover(null);
@@ -111,6 +131,8 @@ export function App() {
   }
 
   function handlePlanPoint(point: PlanPoint) {
+    if (activeTool === "select") return;
+
     if (activeTool === "wall") {
       handleWallPoint(point);
       return;
@@ -182,16 +204,30 @@ export function App() {
     setOpeningHover(null);
   }
 
-  function selectTool(tool: Exclude<EditorTool, null>) {
-    if (activeTool === tool) {
-      setActiveTool(null);
-      cancelTransient();
-      return;
-    }
-
+  function selectTool(tool: EditorTool) {
     cancelTransient();
     setActiveTool(tool);
     setViewMode("2d");
+  }
+
+  function selectWall(wallId: string) {
+    setSelection(selectOnly({ kind: "wall", id: wallId }));
+  }
+
+  function clearSelection() {
+    setSelection(EMPTY_SELECTION);
+  }
+
+  function setSelectedWallLength(lengthMm: number) {
+    if (!selectedWallId) return;
+    session.execute(
+      new SetWallLengthCommand({
+        levelId,
+        wallId: selectedWallId,
+        lengthMm,
+        anchor: "start",
+      }),
+    );
   }
 
   function changeView(mode: ViewMode) {
@@ -246,6 +282,13 @@ export function App() {
       <main className="editor-layout">
         <aside className="tool-rail" aria-label="Drawing tools">
           <Button
+            variant={activeTool === "select" ? "primary" : "ghost"}
+            onClick={() => selectTool("select")}
+            title="Select and edit plan elements"
+          >
+            Select
+          </Button>
+          <Button
             variant={activeTool === "wall" ? "primary" : "ghost"}
             onClick={() => selectTool("wall")}
             title="Draw connected walls"
@@ -279,18 +322,21 @@ export function App() {
               rooms={projection.rooms}
               topologyIssues={projection.topologyIssues}
               activeTool={activeTool}
+              selectedWallId={selectedWallId}
               draftStart={wallDraft?.start.point ?? null}
               draftEnd={wallDraft ? hoverSnap?.point ?? wallDraft.start.point : null}
               snapPoint={hoverSnap?.point ?? null}
               snapSource={hoverSnap?.source ?? null}
               openingHover={openingHover}
               onPoint={handlePlanPoint}
+              onSelectWall={selectWall}
+              onClearSelection={clearSelection}
               onPointerPosition={handlePlanPointerMove}
               onPointerLeave={handlePlanPointerLeave}
               onCancel={cancelTransient}
             />
           ) : (
-            <ThreeViewport document={document} levelId={levelId} />
+            <ThreeViewport document={document} levelId={levelId} selectedId={selectedWallId} />
           )}
         </section>
 
@@ -333,6 +379,19 @@ export function App() {
                 </div>
               </dl>
 
+              {selectedWall ? (
+                <div className="selection-properties">
+                  <span className="eyebrow">Selected wall</span>
+                  <LengthField
+                    label="Length"
+                    valueMm={Math.round(selectedWall.lengthMm)}
+                    minMm={100}
+                    helpText="The start vertex stays fixed; connected walls at the moved endpoint follow it."
+                    onCommit={setSelectedWallLength}
+                  />
+                </div>
+              ) : null}
+
               <div className="tool-status" aria-live="polite">
                 <strong>{toolTitle(viewMode, activeTool, wallDraft !== null)}</strong>
                 <span>{toolHelp(viewMode, activeTool, wallDraft !== null)}</span>
@@ -351,12 +410,15 @@ interface PlanCanvasProps {
   rooms: ReturnType<typeof projectLevel2D>["rooms"];
   topologyIssues: ReturnType<typeof projectLevel2D>["topologyIssues"];
   activeTool: EditorTool;
+  selectedWallId: string | null;
   draftStart: PlanPoint | null;
   draftEnd: PlanPoint | null;
   snapPoint: PlanPoint | null;
   snapSource: PlanSnapResult["source"] | null;
   openingHover: OpeningWallPlacement | null;
   onPoint(point: PlanPoint): void;
+  onSelectWall(wallId: string): void;
+  onClearSelection(): void;
   onPointerPosition(point: PlanPoint): void;
   onPointerLeave(): void;
   onCancel(): void;
@@ -368,12 +430,15 @@ function PlanCanvas({
   rooms,
   topologyIssues,
   activeTool,
+  selectedWallId,
   draftStart,
   draftEnd,
   snapPoint,
   snapSource,
   openingHover,
   onPoint,
+  onSelectWall,
+  onClearSelection,
   onPointerPosition,
   onPointerLeave,
   onCancel,
@@ -399,10 +464,16 @@ function PlanCanvas({
       }}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
-        const point = pointerPoint(event);
-        if (!point) return;
         event.preventDefault();
         event.currentTarget.focus();
+
+        if (activeTool === "select") {
+          onClearSelection();
+          return;
+        }
+
+        const point = pointerPoint(event);
+        if (!point) return;
         onPoint(point);
       }}
       onPointerLeave={onPointerLeave}
@@ -437,18 +508,52 @@ function PlanCanvas({
           </text>
         </g>
       ))}
-      {walls.map((wall) => (
-        <line
-          key={wall.id}
-          x1={wall.x1Mm}
-          y1={wall.y1Mm}
-          x2={wall.x2Mm}
-          y2={wall.y2Mm}
-          strokeWidth={wall.thicknessMm}
-          className="plan-wall"
-          strokeLinecap="square"
-        />
-      ))}
+      {walls.map((wall) => {
+        const selected = wall.id === selectedWallId;
+        const dimension = wallDimensionPosition(wall);
+
+        return (
+          <g key={wall.id}>
+            <line
+              x1={wall.x1Mm}
+              y1={wall.y1Mm}
+              x2={wall.x2Mm}
+              y2={wall.y2Mm}
+              strokeWidth={Math.max(wall.thicknessMm + 260, 320)}
+              className="plan-wall-hit"
+              strokeLinecap="square"
+              onPointerDown={(event) => {
+                if (activeTool !== "select" || event.button !== 0) return;
+                event.preventDefault();
+                event.stopPropagation();
+                onSelectWall(wall.id);
+              }}
+            />
+            <line
+              x1={wall.x1Mm}
+              y1={wall.y1Mm}
+              x2={wall.x2Mm}
+              y2={wall.y2Mm}
+              strokeWidth={wall.thicknessMm}
+              className={`plan-wall${selected ? " plan-wall--selected" : ""}`}
+              strokeLinecap="square"
+              pointerEvents="none"
+            />
+            {selected ? (
+              <text
+                x={dimension.xMm}
+                y={dimension.yMm}
+                className="wall-dimension-label"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                pointerEvents="none"
+              >
+                {Math.round(wall.lengthMm)} mm
+              </text>
+            ) : null}
+          </g>
+        );
+      })}
       {openings.map((opening) => (
         <g key={opening.id} pointerEvents="none">
           <line
@@ -527,9 +632,10 @@ function PlanCanvas({
 interface ThreeViewportProps {
   document: ProjectDocument;
   levelId: string;
+  selectedId: string | null;
 }
 
-function ThreeViewport({ document, levelId }: ThreeViewportProps) {
+function ThreeViewport({ document, levelId, selectedId }: ThreeViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<RoomSceneRenderer | null>(null);
 
@@ -549,6 +655,10 @@ function ThreeViewport({ document, levelId }: ThreeViewportProps) {
   useEffect(() => {
     rendererRef.current?.setDocument(document, levelId);
   }, [document, levelId]);
+
+  useEffect(() => {
+    rendererRef.current?.setSelection(selectedId);
+  }, [selectedId]);
 
   return <div ref={hostRef} className="three-viewport" aria-label="3D apartment view" />;
 }
@@ -572,8 +682,22 @@ function samePoint(a: PlanPoint, b: PlanPoint): boolean {
   return a.xMm === b.xMm && a.yMm === b.yMm;
 }
 
+function wallDimensionPosition(wall: ReturnType<typeof projectLevel2D>["walls"][number]) {
+  const dx = wall.x2Mm - wall.x1Mm;
+  const dy = wall.y2Mm - wall.y1Mm;
+  const length = Math.max(wall.lengthMm, 1);
+  const normalX = -dy / length;
+  const normalY = dx / length;
+
+  return {
+    xMm: (wall.x1Mm + wall.x2Mm) / 2 + normalX * 280,
+    yMm: (wall.y1Mm + wall.y2Mm) / 2 + normalY * 280,
+  };
+}
+
 function toolTitle(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean): string {
   if (viewMode === "3d") return "3D view";
+  if (activeTool === "select") return "Select and edit";
   if (activeTool === "wall") return hasDraft ? "Continue wall" : "Draw wall";
   if (activeTool === "door") return "Place door";
   if (activeTool === "window") return "Place window";
@@ -581,7 +705,8 @@ function toolTitle(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean
 }
 
 function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean): string {
-  if (viewMode === "3d") return "Drag to orbit. Scroll to zoom. Openings are cut from the same semantic walls.";
+  if (viewMode === "3d") return "Drag to orbit. Scroll to zoom. The selected wall remains highlighted.";
+  if (activeTool === "select") return "Click a wall to inspect it and enter an exact length.";
   if (activeTool === "wall") {
     return hasDraft
       ? "Choose the next endpoint. Escape cancels the chain."
@@ -589,7 +714,7 @@ function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean)
   }
   if (activeTool === "door") return "Click near a wall to place a 900 × 2100 mm door.";
   if (activeTool === "window") return "Click near a wall to place a 1200 × 1200 mm window with a 900 mm sill.";
-  return "Choose Wall, Door or Window.";
+  return "Choose Select, Wall, Door or Window.";
 }
 
 function formatAreaSquareMetres(areaMm2: number): string {
