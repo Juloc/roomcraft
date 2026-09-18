@@ -117,3 +117,43 @@ textarea {
     min-height: 40px;
   }
 }
+
+.rc-field {
+  display: grid;
+  gap: var(--rc-space-2);
+}
+
+.rc-field__label {
+  color: var(--rc-text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.rc-input {
+  width: 100%;
+  min-height: var(--rc-control-height);
+  padding: 0 var(--rc-space-3);
+  border: 1px solid var(--rc-border);
+  border-radius: var(--rc-radius-sm);
+  color: var(--rc-text);
+  background: var(--rc-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-input--invalid {
+  border-color: var(--rc-danger);
+}
+
+.rc-field__help,
+.rc-field__error {
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.rc-field__help {
+  color: var(--rc-text-muted);
+}
+
+.rc-field__error {
+  color: var(--rc-danger);
+}
