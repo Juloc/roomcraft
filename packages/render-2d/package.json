@@ -8,7 +8,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@roomcraft/document": "*"
+    "@roomcraft/document": "*",
+    "@roomcraft/geometry": "*"
   },
   "devDependencies": {
     "typescript": "7.0.2"
