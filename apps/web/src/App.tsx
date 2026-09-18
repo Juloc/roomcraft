@@ -276,6 +276,8 @@ export function App() {
             <PlanCanvas
               walls={projection.walls}
               openings={projection.openings}
+              rooms={projection.rooms}
+              topologyIssues={projection.topologyIssues}
               activeTool={activeTool}
               draftStart={wallDraft?.start.point ?? null}
               draftEnd={wallDraft ? hoverSnap?.point ?? wallDraft.start.point : null}
@@ -310,6 +312,14 @@ export function App() {
                   <dd>{level.openings.length}</dd>
                 </div>
                 <div>
+                  <dt>Rooms</dt>
+                  <dd>{projection.rooms.length}</dd>
+                </div>
+                <div>
+                  <dt>Topology</dt>
+                  <dd>{projection.topologyIssues.length === 0 ? "OK" : `${projection.topologyIssues.length} issue(s)`}</dd>
+                </div>
+                <div>
                   <dt>Height</dt>
                   <dd>{level.defaultWallHeightMm} mm</dd>
                 </div>
@@ -338,6 +348,8 @@ export function App() {
 interface PlanCanvasProps {
   walls: ReturnType<typeof projectLevel2D>["walls"];
   openings: ReturnType<typeof projectLevel2D>["openings"];
+  rooms: ReturnType<typeof projectLevel2D>["rooms"];
+  topologyIssues: ReturnType<typeof projectLevel2D>["topologyIssues"];
   activeTool: EditorTool;
   draftStart: PlanPoint | null;
   draftEnd: PlanPoint | null;
@@ -353,6 +365,8 @@ interface PlanCanvasProps {
 function PlanCanvas({
   walls,
   openings,
+  rooms,
+  topologyIssues,
   activeTool,
   draftStart,
   draftEnd,
@@ -406,6 +420,23 @@ function PlanCanvas({
         </pattern>
       </defs>
       <rect x="-600" y="-600" width="5200" height="4200" fill="url(#major-grid)" />
+      {rooms.map((room) => (
+        <g key={room.key} className="plan-room" pointerEvents="none">
+          <polygon
+            points={room.points.map((point) => `${point.xMm},${point.yMm}`).join(" ")}
+            className="plan-room__fill"
+          />
+          <text
+            x={room.centerXmm}
+            y={room.centerYmm}
+            className="plan-room__label"
+            textAnchor="middle"
+            dominantBaseline="middle"
+          >
+            {formatAreaSquareMetres(room.areaMm2)} m²
+          </text>
+        </g>
+      ))}
       {walls.map((wall) => (
         <line
           key={wall.id}
@@ -468,6 +499,27 @@ function PlanCanvas({
           pointerEvents="none"
         />
       ) : null}
+      {topologyIssues.map((issue, index) => (
+        <g
+          key={`${issue.type}:${issue.edgeIds.join(":")}:${index}`}
+          className="topology-issue"
+          pointerEvents="none"
+        >
+          <circle cx={issue.point.xMm} cy={issue.point.yMm} r={105} />
+          <line
+            x1={issue.point.xMm - 55}
+            y1={issue.point.yMm - 55}
+            x2={issue.point.xMm + 55}
+            y2={issue.point.yMm + 55}
+          />
+          <line
+            x1={issue.point.xMm + 55}
+            y1={issue.point.yMm - 55}
+            x2={issue.point.xMm - 55}
+            y2={issue.point.yMm + 55}
+          />
+        </g>
+      ))}
     </svg>
   );
 }
@@ -538,6 +590,14 @@ function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean)
   if (activeTool === "door") return "Click near a wall to place a 900 × 2100 mm door.";
   if (activeTool === "window") return "Click near a wall to place a 1200 × 1200 mm window with a 900 mm sill.";
   return "Choose Wall, Door or Window.";
+}
+
+function formatAreaSquareMetres(areaMm2: number): string {
+  const areaM2 = areaMm2 / 1_000_000;
+  return areaM2.toLocaleString(undefined, {
+    minimumFractionDigits: areaM2 < 10 ? 2 : 1,
+    maximumFractionDigits: 2,
+  });
 }
 
 function saveStateLabel(state: SaveState): string {

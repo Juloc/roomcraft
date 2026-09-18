@@ -137,8 +137,35 @@ body {
   opacity: 0.4;
 }
 
+.plan-room__fill {
+  fill: var(--rc-accent);
+  opacity: 0.08;
+}
+
+.plan-room__label {
+  fill: var(--rc-text-muted);
+  stroke: var(--rc-surface);
+  stroke-width: 18;
+  paint-order: stroke fill;
+  font-size: 180px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
 .plan-wall {
   stroke: var(--rc-text);
+}
+
+.topology-issue circle {
+  fill: var(--rc-surface);
+  stroke: var(--rc-danger);
+  stroke-width: 24;
+}
+
+.topology-issue line {
+  stroke: var(--rc-danger);
+  stroke-width: 24;
+  stroke-linecap: round;
 }
 
 .plan-wall-preview {

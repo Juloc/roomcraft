@@ -1,4 +1,5 @@
 import type { EntityId, OpeningType, ProjectDocument } from "@roomcraft/document";
+import { analyzePlanarFaces, type PlanarGraphIssue } from "@roomcraft/geometry";
 
 export interface ProjectedWall2D {
   id: EntityId;
@@ -25,10 +26,20 @@ export interface ProjectedOpening2D {
   swing: "left" | "right" | "none";
 }
 
+export interface ProjectedRoom2D {
+  key: string;
+  points: Array<{ xMm: number; yMm: number }>;
+  centerXmm: number;
+  centerYmm: number;
+  areaMm2: number;
+}
+
 export interface PlanProjection2D {
   levelId: EntityId;
   walls: ProjectedWall2D[];
   openings: ProjectedOpening2D[];
+  rooms: ProjectedRoom2D[];
+  topologyIssues: PlanarGraphIssue[];
 }
 
 export function projectLevel2D(document: ProjectDocument, levelId: EntityId): PlanProjection2D {
@@ -37,6 +48,7 @@ export function projectLevel2D(document: ProjectDocument, levelId: EntityId): Pl
 
   const vertices = new Map(level.vertices.map((vertex) => [vertex.id, vertex]));
   const wallById = new Map(level.walls.map((wall) => [wall.id, wall]));
+  const roomAnalysis = analyzePlanarFaces(level.vertices, level.walls);
 
   const walls = level.walls.map((wall) => {
     const start = vertices.get(wall.startVertexId);
@@ -88,5 +100,22 @@ export function projectLevel2D(document: ProjectDocument, levelId: EntityId): Pl
     } satisfies ProjectedOpening2D;
   });
 
-  return { levelId, walls, openings };
+  const rooms = roomAnalysis.faces.map(
+    (face) =>
+      ({
+        key: face.key,
+        points: face.points,
+        centerXmm: face.centroid.xMm,
+        centerYmm: face.centroid.yMm,
+        areaMm2: face.areaMm2,
+      }) satisfies ProjectedRoom2D,
+  );
+
+  return {
+    levelId,
+    walls,
+    openings,
+    rooms,
+    topologyIssues: roomAnalysis.issues,
+  };
 }
