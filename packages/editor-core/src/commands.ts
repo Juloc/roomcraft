@@ -6,6 +6,7 @@ import type {
   Vertex,
   Wall,
 } from "@roomcraft/document";
+import { distanceMm } from "@roomcraft/geometry";
 
 export interface CommandResult {
   document: ProjectDocument;
@@ -129,6 +130,107 @@ export class AddWallCommand implements EditorCommand {
   }
 }
 
+export interface MoveVertexInput {
+  levelId: EntityId;
+  vertexId: EntityId;
+  xMm: number;
+  yMm: number;
+}
+
+export class MoveVertexCommand implements EditorCommand {
+  readonly type = "MoveVertex";
+
+  constructor(private readonly input: MoveVertexInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    if (!Number.isSafeInteger(this.input.xMm) || !Number.isSafeInteger(this.input.yMm)) {
+      throw new Error("Vertex coordinates must be integer millimetre values.");
+    }
+
+    const level = getLevel(document, this.input.levelId);
+    const existing = level.vertices.find((vertex) => vertex.id === this.input.vertexId);
+    if (!existing) throw new Error(`Vertex ${this.input.vertexId} does not exist.`);
+
+    if (existing.xMm === this.input.xMm && existing.yMm === this.input.yMm) {
+      return {
+        document,
+        inverse: new MoveVertexCommand({
+          levelId: this.input.levelId,
+          vertexId: existing.id,
+          xMm: existing.xMm,
+          yMm: existing.yMm,
+        }),
+      };
+    }
+
+    const moved: Vertex = {
+      ...existing,
+      xMm: this.input.xMm,
+      yMm: this.input.yMm,
+    };
+    const nextLevel: Level = {
+      ...level,
+      vertices: level.vertices.map((vertex) => (vertex.id === moved.id ? moved : vertex)),
+    };
+
+    validateIncidentWallGeometry(nextLevel, moved.id);
+
+    return {
+      document: replaceLevel(document, nextLevel),
+      inverse: new MoveVertexCommand({
+        levelId: this.input.levelId,
+        vertexId: existing.id,
+        xMm: existing.xMm,
+        yMm: existing.yMm,
+      }),
+    };
+  }
+}
+
+export interface SetWallLengthInput {
+  levelId: EntityId;
+  wallId: EntityId;
+  lengthMm: number;
+  anchor?: "start" | "end";
+}
+
+export class SetWallLengthCommand implements EditorCommand {
+  readonly type = "SetWallLength";
+
+  constructor(private readonly input: SetWallLengthInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    if (!Number.isSafeInteger(this.input.lengthMm) || this.input.lengthMm <= 0) {
+      throw new Error("Wall length must be a positive integer millimetre value.");
+    }
+
+    const level = getLevel(document, this.input.levelId);
+    const wall = level.walls.find((candidate) => candidate.id === this.input.wallId);
+    if (!wall) throw new Error(`Wall ${this.input.wallId} does not exist.`);
+
+    const start = level.vertices.find((vertex) => vertex.id === wall.startVertexId);
+    const end = level.vertices.find((vertex) => vertex.id === wall.endVertexId);
+    if (!start || !end) throw new Error(`Wall ${wall.id} references a missing vertex.`);
+
+    const anchor = this.input.anchor ?? "start";
+    const fixed = anchor === "start" ? start : end;
+    const moving = anchor === "start" ? end : start;
+    const currentLengthMm = distanceMm(fixed, moving);
+    if (currentLengthMm <= 0) throw new Error(`Wall ${wall.id} has zero length.`);
+
+    const scale = this.input.lengthMm / currentLengthMm;
+    const xMm = Math.round(fixed.xMm + (moving.xMm - fixed.xMm) * scale);
+    const yMm = Math.round(fixed.yMm + (moving.yMm - fixed.yMm) * scale);
+
+    return new MoveVertexCommand({
+      levelId: this.input.levelId,
+      vertexId: moving.id,
+      xMm,
+      yMm,
+    }).execute(document);
+  }
+}
+
 export interface AddOpeningInput {
   levelId: EntityId;
   opening: Opening;
@@ -248,6 +350,28 @@ class RemoveWallCommand implements EditorCommand {
         heightMm: this.wall.heightMm,
       }),
     };
+  }
+}
+
+function validateIncidentWallGeometry(level: Level, vertexId: EntityId): void {
+  const vertex = level.vertices.find((candidate) => candidate.id === vertexId);
+  if (!vertex) throw new Error(`Vertex ${vertexId} does not exist.`);
+
+  for (const wall of level.walls) {
+    if (wall.startVertexId !== vertexId && wall.endVertexId !== vertexId) continue;
+
+    const otherVertexId =
+      wall.startVertexId === vertexId ? wall.endVertexId : wall.startVertexId;
+    const other = level.vertices.find((candidate) => candidate.id === otherVertexId);
+    if (!other) throw new Error(`Wall ${wall.id} references a missing vertex.`);
+
+    if (distanceMm(vertex, other) <= 0) {
+      throw new Error(`Moving vertex ${vertexId} would collapse wall ${wall.id}.`);
+    }
+
+    for (const opening of level.openings) {
+      if (opening.wallId === wall.id) validateOpeningGeometry(level, wall, opening);
+    }
   }
 }
 
