@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEmptyProject, validateProjectDocument } from "../src";
+import { CURRENT_SCHEMA_VERSION, createEmptyProject, parseProjectDocument, validateProjectDocument } from "../src";
 
 describe("project document validation", () => {
   it("accepts a newly created project", () => {
@@ -104,4 +104,69 @@ describe("project document validation", () => {
       "Opening door_a does not fit inside wall wall_a.",
     );
   });
+  it("migrates a v1 project to v2 without mutating the source", () => {
+    const legacy = {
+      schemaVersion: 1,
+      id: "project_v1",
+      name: "Legacy",
+      settings: {
+        unitSystem: "metric",
+        gridSizeMm: 100,
+        angleSnapDeg: 15,
+      },
+      levels: [
+        {
+          id: "level_ground",
+          name: "Ground floor",
+          elevationMm: 0,
+          defaultWallHeightMm: 2500,
+          vertices: [],
+          walls: [],
+          openings: [],
+          objects: [],
+        },
+      ],
+    } as const;
+
+    const migrated = parseProjectDocument(legacy);
+
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.levels[0]?.blueprints).toEqual([]);
+    expect("blueprints" in legacy.levels[0]).toBe(false);
+  });
+
+  it("accepts a calibrated blueprint reference", () => {
+    const document = createEmptyProject("project_blueprint");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    level.blueprints.push({
+      id: "blueprint_1",
+      assetId: "asset_1",
+      sourceWidthPx: 2000,
+      sourceHeightPx: 1200,
+      originXmm: -500,
+      originYmm: -250,
+      millimetresPerPixel: 2.5,
+      rotationDeg: 0,
+      opacity: 0.55,
+      locked: true,
+      visible: true,
+    });
+
+    expect(() => validateProjectDocument(document)).not.toThrow();
+  });
+
+  it("rejects documents from a future schema version", () => {
+    expect(() =>
+      parseProjectDocument({
+        schemaVersion: CURRENT_SCHEMA_VERSION + 1,
+        id: "future",
+        name: "Future",
+        settings: {},
+        levels: [],
+      }),
+    ).toThrow("newer than supported");
+  });
+
 });
