@@ -39,6 +39,27 @@ body {
   white-space: nowrap;
 }
 
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding-inline: var(--rc-space-2);
+  color: var(--rc-text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.save-state--unsaved,
+.save-state--saving {
+  color: var(--rc-text);
+}
+
+.save-state--conflict,
+.save-state--error {
+  font-weight: 700;
+  color: var(--rc-danger);
+}
+
 .editor-layout {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr) 280px;

@@ -4,5 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../RoomCraft.SharedKernel/RoomCraft.SharedKernel.csproj" />
+    <ProjectReference Include="../Modules/Projects/RoomCraft.Modules.Projects.csproj" />
   </ItemGroup>
 </Project>

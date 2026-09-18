@@ -2,7 +2,6 @@ import { createEmptyProject, type Opening, type ProjectDocument } from "@roomcra
 import {
   AddOpeningCommand,
   AddWallCommand,
-  CommandHistory,
   snapOpeningToWall,
   snapPlanPoint,
   type OpeningWallPlacement,
@@ -17,6 +16,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { useProjectSession, type SaveState } from "./use-project-session";
 
 type ViewMode = "2d" | "3d";
 type EditorTool = "wall" | "door" | "window" | null;
@@ -36,19 +36,28 @@ const OPENING_PRESETS = {
   window: { widthMm: 1200, heightMm: 1200, sillHeightMm: 900 } as const,
 };
 
-export function App() {
-  const historyRef = useRef<CommandHistory | null>(null);
-  if (!historyRef.current) {
-    historyRef.current = new CommandHistory(createEmptyProject("project_local", "My apartment"));
-  }
+const CURRENT_PROJECT_KEY = "roomcraft.currentProjectId";
 
-  const history = historyRef.current;
-  const [document, setDocument] = useState(history.document);
+export function App() {
+  const session = useProjectSession(() =>
+    createEmptyProject(getOrCreateProjectId(), "My apartment"),
+  );
+  const { document, revision, saveState, saveError } = session;
+
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
   const [activeTool, setActiveTool] = useState<EditorTool>("wall");
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
   const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
+
+  if (saveState === "loading") {
+    return (
+      <main className="fatal-state" aria-live="polite">
+        <strong>Loading project</strong>
+        <span>Opening the latest saved revision.</span>
+      </main>
+    );
+  }
 
   const level = document.levels[0];
   if (!level) {
@@ -64,7 +73,7 @@ export function App() {
   const projection = projectLevel2D(document, levelId);
 
   function currentLevel() {
-    return history.document.levels.find((candidate) => candidate.id === levelId) ?? null;
+    return document.levels.find((candidate) => candidate.id === levelId) ?? null;
   }
 
   function snap(point: PlanPoint): PlanSnapResult | null {
@@ -72,7 +81,7 @@ export function App() {
     if (!current) return null;
 
     return snapPlanPoint(point, current, {
-      gridSizeMm: history.document.settings.gridSizeMm,
+      gridSizeMm: document.settings.gridSizeMm,
     });
   }
 
@@ -126,7 +135,7 @@ export function App() {
 
     const start = endpointFromSnap(wallDraft.start);
     const end = endpointFromSnap(snapped);
-    const next = history.execute(
+    session.execute(
       new AddWallCommand({
         levelId,
         wallId: createEntityId("wall"),
@@ -135,8 +144,6 @@ export function App() {
         thicknessMm: 120,
       }),
     );
-
-    setDocument(next);
 
     const endVertexId = end.kind === "existing" ? end.vertexId : end.vertex.id;
     const chainedStart: PlanSnapResult = {
@@ -165,7 +172,7 @@ export function App() {
       swing: tool === "door" ? "left" : "none",
     };
 
-    setDocument(history.execute(new AddOpeningCommand({ levelId, opening })));
+    session.execute(new AddOpeningCommand({ levelId, opening }));
     setOpeningHover(null);
   }
 
@@ -194,12 +201,12 @@ export function App() {
 
   function undo() {
     cancelTransient();
-    setDocument(history.undo());
+    session.undo();
   }
 
   function redo() {
     cancelTransient();
-    setDocument(history.redo());
+    session.redo();
   }
 
   return (
@@ -211,12 +218,22 @@ export function App() {
         </div>
 
         <Toolbar>
-          <Button variant="ghost" onClick={undo} disabled={!history.canUndo}>
+          <Button variant="ghost" onClick={undo} disabled={!session.canUndo}>
             Undo
           </Button>
-          <Button variant="ghost" onClick={redo} disabled={!history.canRedo}>
+          <Button variant="ghost" onClick={redo} disabled={!session.canRedo}>
             Redo
           </Button>
+          <Button
+            variant="primary"
+            onClick={() => void session.saveNow()}
+            disabled={saveState === "saving" || saveState === "saved"}
+          >
+            {saveState === "saving" ? "Saving…" : "Save"}
+          </Button>
+          <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
+            {saveStateLabel(saveState)}
+          </span>
           <SegmentedControl
             value={viewMode}
             options={VIEW_OPTIONS}
@@ -299,6 +316,10 @@ export function App() {
                 <div>
                   <dt>Grid</dt>
                   <dd>{document.settings.gridSizeMm} mm</dd>
+                </div>
+                <div>
+                  <dt>Revision</dt>
+                  <dd>{revision ?? "—"}</dd>
                 </div>
               </dl>
 
@@ -517,6 +538,32 @@ function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean)
   if (activeTool === "door") return "Click near a wall to place a 900 × 2100 mm door.";
   if (activeTool === "window") return "Click near a wall to place a 1200 × 1200 mm window with a 900 mm sill.";
   return "Choose Wall, Door or Window.";
+}
+
+function saveStateLabel(state: SaveState): string {
+  switch (state) {
+    case "loading":
+      return "Loading";
+    case "saved":
+      return "Saved";
+    case "unsaved":
+      return "Unsaved";
+    case "saving":
+      return "Saving";
+    case "conflict":
+      return "Conflict";
+    case "error":
+      return "Save error";
+  }
+}
+
+function getOrCreateProjectId(): string {
+  const existing = window.localStorage.getItem(CURRENT_PROJECT_KEY);
+  if (existing) return existing;
+
+  const id = createEntityId("project");
+  window.localStorage.setItem(CURRENT_PROJECT_KEY, id);
+  return id;
 }
 
 function createEntityId(prefix: string): string {
