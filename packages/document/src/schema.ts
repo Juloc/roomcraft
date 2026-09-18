@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 1 as const;
+export const CURRENT_SCHEMA_VERSION = 2 as const;
 
 export type EntityId = string;
 export type Millimetres = number;
@@ -26,6 +26,7 @@ export interface Level {
   walls: Wall[];
   openings: Opening[];
   objects: ObjectInstance[];
+  blueprints: BlueprintReference[];
 }
 
 export interface Vertex {
@@ -70,6 +71,20 @@ export interface ObjectInstance {
   locked: boolean;
 }
 
+export interface BlueprintReference {
+  id: EntityId;
+  assetId: EntityId;
+  sourceWidthPx: number;
+  sourceHeightPx: number;
+  originXmm: Millimetres;
+  originYmm: Millimetres;
+  millimetresPerPixel: number;
+  rotationDeg: number;
+  opacity: number;
+  locked: boolean;
+  visible: boolean;
+}
+
 export function createEmptyProject(id: EntityId, name = "Untitled project"): ProjectDocument {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -90,6 +105,7 @@ export function createEmptyProject(id: EntityId, name = "Untitled project"): Pro
         walls: [],
         openings: [],
         objects: [],
+        blueprints: [],
       },
     ],
   };
