@@ -1,9 +1,17 @@
-import { createEmptyProject, type Opening, type ProjectDocument } from "@roomcraft/document";
 import {
+  createEmptyProject,
+  type BlueprintReference,
+  type Opening,
+  type ProjectDocument,
+} from "@roomcraft/document";
+import {
+  AddBlueprintCommand,
   AddOpeningCommand,
   AddWallCommand,
+  CalibrateBlueprintCommand,
   EMPTY_SELECTION,
   SetWallLengthCommand,
+  UpdateBlueprintCommand,
   DEFAULT_PLAN_CAMERA,
   fitPlanCamera,
   panPlanCamera,
@@ -27,14 +35,21 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { assetContentUrl, readImageDimensions, uploadBlueprintAsset } from "./assets-api";
 import { useProjectSession, type SaveState } from "./use-project-session";
 
 type ViewMode = "2d" | "3d";
-type EditorTool = "select" | "wall" | "door" | "window";
+type EditorTool = "select" | "wall" | "door" | "window" | "blueprint-calibrate";
 type PlanPoint = PlanSnapResult["point"];
 
 interface WallDraft {
   start: PlanSnapResult;
+}
+
+interface BlueprintCalibrationDraft {
+  blueprintId: string;
+  firstPoint: PlanPoint | null;
+  secondPoint: PlanPoint | null;
 }
 
 const VIEW_OPTIONS = [
@@ -58,6 +73,10 @@ export function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
+  const blueprintFileRef = useRef<HTMLInputElement | null>(null);
+  const [blueprintImportState, setBlueprintImportState] = useState<"idle" | "uploading">("idle");
+  const [blueprintImportError, setBlueprintImportError] = useState<string | null>(null);
+  const [calibrationDraft, setCalibrationDraft] = useState<BlueprintCalibrationDraft | null>(null);
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
   const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
@@ -92,6 +111,15 @@ export function App() {
     selectedWallId === null
       ? null
       : projection.walls.find((wall) => wall.id === selectedWallId) ?? null;
+  const selectedBlueprintId =
+    selection.primary?.kind === "blueprint" &&
+    level.blueprints.some((blueprint) => blueprint.id === selection.primary?.id)
+      ? selection.primary.id
+      : null;
+  const selectedBlueprint =
+    selectedBlueprintId === null
+      ? null
+      : level.blueprints.find((blueprint) => blueprint.id === selectedBlueprintId) ?? null;
 
   function currentLevel() {
     return document.levels.find((candidate) => candidate.id === levelId) ?? null;
@@ -116,7 +144,7 @@ export function App() {
   }
 
   function handlePlanPointerMove(point: PlanPoint) {
-    if (activeTool === "select") {
+    if (activeTool === "select" || activeTool === "blueprint-calibrate") {
       setHoverSnap(null);
       setOpeningHover(null);
       return;
@@ -139,6 +167,11 @@ export function App() {
 
   function handlePlanPoint(point: PlanPoint) {
     if (activeTool === "select") return;
+
+    if (activeTool === "blueprint-calibrate") {
+      handleCalibrationPoint(point);
+      return;
+    }
 
     if (activeTool === "wall") {
       handleWallPoint(point);
@@ -205,10 +238,105 @@ export function App() {
     setOpeningHover(null);
   }
 
+  function handleCalibrationPoint(point: PlanPoint) {
+    if (!selectedBlueprintId) return;
+
+    setCalibrationDraft((current) => {
+      if (!current || current.blueprintId !== selectedBlueprintId || current.secondPoint) {
+        return { blueprintId: selectedBlueprintId, firstPoint: point, secondPoint: null };
+      }
+      if (!current.firstPoint) {
+        return { ...current, firstPoint: point };
+      }
+      if (samePoint(current.firstPoint, point)) return current;
+      return { ...current, secondPoint: point };
+    });
+  }
+
+  async function importBlueprint(file: File) {
+    setBlueprintImportState("uploading");
+    setBlueprintImportError(null);
+
+    try {
+      const dimensions = await readImageDimensions(file);
+      const asset = await uploadBlueprintAsset(file);
+      const initialWidthMm = 6000;
+      const millimetresPerPixel = initialWidthMm / dimensions.widthPx;
+      const blueprint: BlueprintReference = {
+        id: createEntityId("blueprint"),
+        assetId: asset.id,
+        sourceWidthPx: dimensions.widthPx,
+        sourceHeightPx: dimensions.heightPx,
+        originXmm: 0,
+        originYmm: 0,
+        millimetresPerPixel,
+        rotationDeg: 0,
+        opacity: 0.5,
+        locked: true,
+        visible: true,
+      };
+
+      session.execute(new AddBlueprintCommand({ levelId, blueprint }));
+      setSelection(selectOnly({ kind: "blueprint", id: blueprint.id }));
+      setActiveTool("select");
+      setViewMode("2d");
+    } catch (error) {
+      setBlueprintImportError(
+        error instanceof Error ? error.message : "Blueprint import failed.",
+      );
+    } finally {
+      setBlueprintImportState("idle");
+    }
+  }
+
+  function selectBlueprint(blueprintId: string) {
+    setSelection(selectOnly({ kind: "blueprint", id: blueprintId }));
+  }
+
+  function startBlueprintCalibration() {
+    if (!selectedBlueprintId) return;
+    cancelTransient();
+    setCalibrationDraft({
+      blueprintId: selectedBlueprintId,
+      firstPoint: null,
+      secondPoint: null,
+    });
+    setActiveTool("blueprint-calibrate");
+    setViewMode("2d");
+  }
+
+  function commitBlueprintCalibration(lengthMm: number) {
+    const draft = calibrationDraft;
+    if (!draft?.firstPoint || !draft.secondPoint) return;
+
+    session.execute(
+      new CalibrateBlueprintCommand({
+        levelId,
+        blueprintId: draft.blueprintId,
+        firstPlanPoint: draft.firstPoint,
+        secondPlanPoint: draft.secondPoint,
+        knownLengthMm: lengthMm,
+      }),
+    );
+    setCalibrationDraft(null);
+    setActiveTool("select");
+  }
+
+  function updateSelectedBlueprint(changes: Partial<BlueprintReference>) {
+    if (!selectedBlueprint) return;
+    session.execute(
+      new UpdateBlueprintCommand({
+        levelId,
+        blueprint: { ...selectedBlueprint, ...changes },
+      }),
+    );
+  }
+
   function cancelTransient() {
     setWallDraft(null);
     setHoverSnap(null);
     setOpeningHover(null);
+    setCalibrationDraft(null);
   }
 
   function selectTool(tool: EditorTool) {
@@ -316,6 +444,26 @@ export function App() {
           >
             Window
           </Button>
+          <Button
+            variant="ghost"
+            disabled={blueprintImportState === "uploading"}
+            onClick={() => blueprintFileRef.current?.click()}
+            title="Import a floor plan image and calibrate it"
+          >
+            {blueprintImportState === "uploading" ? "Uploading…" : "Blueprint"}
+          </Button>
+          <input
+            ref={blueprintFileRef}
+            className="visually-hidden"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            tabIndex={-1}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (file) void importBlueprint(file);
+            }}
+          />
           <Button variant="ghost" disabled title="Furniture placement is not implemented yet">
             Furniture
           </Button>
@@ -324,12 +472,15 @@ export function App() {
         <section className="workspace" aria-label="Planning workspace">
           {viewMode === "2d" ? (
             <PlanCanvas
+              blueprints={projection.blueprints}
               walls={projection.walls}
               openings={projection.openings}
               rooms={projection.rooms}
               topologyIssues={projection.topologyIssues}
               activeTool={activeTool}
               selectedWallId={selectedWallId}
+              selectedBlueprintId={selectedBlueprintId}
+              calibrationDraft={calibrationDraft}
               draftStart={wallDraft?.start.point ?? null}
               draftEnd={wallDraft ? hoverSnap?.point ?? wallDraft.start.point : null}
               snapPoint={hoverSnap?.point ?? null}
@@ -337,6 +488,7 @@ export function App() {
               openingHover={openingHover}
               onPoint={handlePlanPoint}
               onSelectWall={selectWall}
+              onSelectBlueprint={selectBlueprint}
               onClearSelection={clearSelection}
               onPointerPosition={handlePlanPointerMove}
               onPointerLeave={handlePlanPointerLeave}
@@ -386,6 +538,12 @@ export function App() {
                 </div>
               </dl>
 
+              {blueprintImportError ? (
+                <div className="inline-error" role="alert">
+                  {blueprintImportError}
+                </div>
+              ) : null}
+
               {selectedWall ? (
                 <div className="selection-properties">
                   <span className="eyebrow">Selected wall</span>
@@ -396,6 +554,56 @@ export function App() {
                     helpText="The start vertex stays fixed; connected walls at the moved endpoint follow it."
                     onCommit={setSelectedWallLength}
                   />
+                </div>
+              ) : null}
+
+              {selectedBlueprint ? (
+                <div className="selection-properties">
+                  <span className="eyebrow">Selected blueprint</span>
+                  <dl className="stats">
+                    <div>
+                      <dt>Image</dt>
+                      <dd>{selectedBlueprint.sourceWidthPx} × {selectedBlueprint.sourceHeightPx}px</dd>
+                    </div>
+                    <div>
+                      <dt>Scale</dt>
+                      <dd>{selectedBlueprint.millimetresPerPixel.toFixed(3)} mm/px</dd>
+                    </div>
+                  </dl>
+                  <Button variant="secondary" onClick={startBlueprintCalibration}>
+                    Calibrate scale
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => updateSelectedBlueprint({ visible: !selectedBlueprint.visible })}
+                  >
+                    {selectedBlueprint.visible ? "Hide blueprint" : "Show blueprint"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => updateSelectedBlueprint({ locked: !selectedBlueprint.locked })}
+                  >
+                    {selectedBlueprint.locked ? "Unlock blueprint" : "Lock blueprint"}
+                  </Button>
+                  {calibrationDraft?.blueprintId === selectedBlueprint.id &&
+                  calibrationDraft.firstPoint &&
+                  calibrationDraft.secondPoint ? (
+                    <LengthField
+                      label="Known distance"
+                      valueMm={Math.max(
+                        1,
+                        Math.round(
+                          Math.hypot(
+                            calibrationDraft.secondPoint.xMm - calibrationDraft.firstPoint.xMm,
+                            calibrationDraft.secondPoint.yMm - calibrationDraft.firstPoint.yMm,
+                          ),
+                        ),
+                      )}
+                      minMm={1}
+                      helpText="Enter the real distance between the two points."
+                      onCommit={commitBlueprintCalibration}
+                    />
+                  ) : null}
                 </div>
               ) : null}
 
@@ -412,12 +620,15 @@ export function App() {
 }
 
 interface PlanCanvasProps {
+  blueprints: ReturnType<typeof projectLevel2D>["blueprints"];
   walls: ReturnType<typeof projectLevel2D>["walls"];
   openings: ReturnType<typeof projectLevel2D>["openings"];
   rooms: ReturnType<typeof projectLevel2D>["rooms"];
   topologyIssues: ReturnType<typeof projectLevel2D>["topologyIssues"];
   activeTool: EditorTool;
   selectedWallId: string | null;
+  selectedBlueprintId: string | null;
+  calibrationDraft: BlueprintCalibrationDraft | null;
   draftStart: PlanPoint | null;
   draftEnd: PlanPoint | null;
   snapPoint: PlanPoint | null;
@@ -425,6 +636,7 @@ interface PlanCanvasProps {
   openingHover: OpeningWallPlacement | null;
   onPoint(point: PlanPoint): void;
   onSelectWall(wallId: string): void;
+  onSelectBlueprint(blueprintId: string): void;
   onClearSelection(): void;
   onPointerPosition(point: PlanPoint): void;
   onPointerLeave(): void;
@@ -432,12 +644,15 @@ interface PlanCanvasProps {
 }
 
 function PlanCanvas({
+  blueprints,
   walls,
   openings,
   rooms,
   topologyIssues,
   activeTool,
   selectedWallId,
+  selectedBlueprintId,
+  calibrationDraft,
   draftStart,
   draftEnd,
   snapPoint,
@@ -445,6 +660,7 @@ function PlanCanvas({
   openingHover,
   onPoint,
   onSelectWall,
+  onSelectBlueprint,
   onClearSelection,
   onPointerPosition,
   onPointerLeave,
@@ -513,10 +729,15 @@ function PlanCanvas({
   }
 
   function fitPlan() {
-    const points = walls.flatMap((wall) => [
-      { xMm: wall.x1Mm, yMm: wall.y1Mm },
-      { xMm: wall.x2Mm, yMm: wall.y2Mm },
-    ]);
+    const points = [
+      ...walls.flatMap((wall) => [
+        { xMm: wall.x1Mm, yMm: wall.y1Mm },
+        { xMm: wall.x2Mm, yMm: wall.y2Mm },
+      ]),
+      ...blueprints
+        .filter((blueprint) => blueprint.visible)
+        .flatMap(projectedBlueprintCorners),
+    ];
     setCamera(fitPlanCamera(points, viewportSize));
   }
 
@@ -598,6 +819,42 @@ function PlanCanvas({
           height={viewBox.heightMm}
           fill="url(#major-grid)"
         />
+        {blueprints
+          .filter((blueprint) => blueprint.visible)
+          .map((blueprint) => {
+            const selected = blueprint.id === selectedBlueprintId;
+            const transform = `rotate(${blueprint.rotationDeg} ${blueprint.xMm} ${blueprint.yMm})`;
+            return (
+              <g key={blueprint.id} transform={transform}>
+                <image
+                  href={assetContentUrl(blueprint.assetId)}
+                  x={blueprint.xMm}
+                  y={blueprint.yMm}
+                  width={blueprint.widthMm}
+                  height={blueprint.heightMm}
+                  opacity={blueprint.opacity}
+                  preserveAspectRatio="none"
+                  className="plan-blueprint"
+                  onPointerDown={(event) => {
+                    if (activeTool !== "select" || event.button !== 0) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onSelectBlueprint(blueprint.id);
+                  }}
+                />
+                {selected ? (
+                  <rect
+                    x={blueprint.xMm}
+                    y={blueprint.yMm}
+                    width={blueprint.widthMm}
+                    height={blueprint.heightMm}
+                    className="plan-blueprint-selection"
+                    pointerEvents="none"
+                  />
+                ) : null}
+              </g>
+            );
+          })}
         {rooms.map((room) => (
           <g key={room.key} className="plan-room" pointerEvents="none">
             <polygon
@@ -711,6 +968,30 @@ function PlanCanvas({
             pointerEvents="none"
           />
         ) : null}
+        {calibrationDraft?.firstPoint ? (
+          <g className="blueprint-calibration" pointerEvents="none">
+            <circle
+              cx={calibrationDraft.firstPoint.xMm}
+              cy={calibrationDraft.firstPoint.yMm}
+              r={70}
+            />
+            {calibrationDraft.secondPoint ? (
+              <>
+                <line
+                  x1={calibrationDraft.firstPoint.xMm}
+                  y1={calibrationDraft.firstPoint.yMm}
+                  x2={calibrationDraft.secondPoint.xMm}
+                  y2={calibrationDraft.secondPoint.yMm}
+                />
+                <circle
+                  cx={calibrationDraft.secondPoint.xMm}
+                  cy={calibrationDraft.secondPoint.yMm}
+                  r={70}
+                />
+              </>
+            ) : null}
+          </g>
+        ) : null}
         {topologyIssues.map((issue, index) => (
           <g
             key={`${issue.type}:${issue.edgeIds.join(":")}:${index}`}
@@ -796,6 +1077,25 @@ function samePoint(a: PlanPoint, b: PlanPoint): boolean {
   return a.xMm === b.xMm && a.yMm === b.yMm;
 }
 
+function projectedBlueprintCorners(
+  blueprint: ReturnType<typeof projectLevel2D>["blueprints"][number],
+): PlanPoint[] {
+  const radians = (blueprint.rotationDeg * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const localPoints = [
+    { xMm: 0, yMm: 0 },
+    { xMm: blueprint.widthMm, yMm: 0 },
+    { xMm: blueprint.widthMm, yMm: blueprint.heightMm },
+    { xMm: 0, yMm: blueprint.heightMm },
+  ];
+
+  return localPoints.map((point) => ({
+    xMm: blueprint.xMm + cosine * point.xMm - sine * point.yMm,
+    yMm: blueprint.yMm + sine * point.xMm + cosine * point.yMm,
+  }));
+}
+
 function wallDimensionPosition(wall: ReturnType<typeof projectLevel2D>["walls"][number]) {
   const dx = wall.x2Mm - wall.x1Mm;
   const dy = wall.y2Mm - wall.y1Mm;
@@ -812,6 +1112,7 @@ function wallDimensionPosition(wall: ReturnType<typeof projectLevel2D>["walls"][
 function toolTitle(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean): string {
   if (viewMode === "3d") return "3D view";
   if (activeTool === "select") return "Select and edit";
+  if (activeTool === "blueprint-calibrate") return "Calibrate blueprint";
   if (activeTool === "wall") return hasDraft ? "Continue wall" : "Draw wall";
   if (activeTool === "door") return "Place door";
   if (activeTool === "window") return "Place window";
@@ -820,7 +1121,10 @@ function toolTitle(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean
 
 function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean): string {
   if (viewMode === "3d") return "Drag to orbit. Scroll to zoom. The selected wall remains highlighted.";
-  if (activeTool === "select") return "Click a wall to inspect it and enter an exact length.";
+  if (activeTool === "select") return "Click a wall or blueprint to inspect it.";
+  if (activeTool === "blueprint-calibrate") {
+    return "Click two points with a known real-world distance, then enter that distance.";
+  }
   if (activeTool === "wall") {
     return hasDraft
       ? "Choose the next endpoint. Escape cancels the chain."
@@ -828,7 +1132,7 @@ function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean)
   }
   if (activeTool === "door") return "Click near a wall to place a 900 × 2100 mm door.";
   if (activeTool === "window") return "Click near a wall to place a 1200 × 1200 mm window with a 900 mm sill.";
-  return "Choose Select, Wall, Door or Window.";
+  return "Choose Select, Wall, Door or Window, or import a Blueprint.";
 }
 
 function formatAreaSquareMetres(areaMm2: number): string {
