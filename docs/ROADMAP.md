@@ -91,7 +91,7 @@ Definition of done:
 - hover separate from selection
 - delete/duplicate via commands
 
-### 1.6 Pan / zoom / viewport ⬜
+### 1.6 Pan / zoom / viewport 🚧
 - infinite-feeling 2D canvas
 - wheel/trackpad zoom around pointer
 - pan
