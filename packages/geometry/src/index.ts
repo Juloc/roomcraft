@@ -1,3 +1,5 @@
+export * from "./planar-faces";
+
 export interface Point2Mm {
   xMm: number;
   yMm: number;
