@@ -445,3 +445,18 @@ body {
 .plan-blueprint--locked {
   cursor: default;
 }
+
+.level-editor {
+  display: grid;
+  gap: var(--rc-space-3);
+}
+
+.level-select {
+  width: 100%;
+}
+
+.level-editor__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--rc-space-2);
+}
