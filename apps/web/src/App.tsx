@@ -50,6 +50,8 @@ import {
 } from "@roomcraft/editor-core";
 import {
   exportLevelSvg,
+  exportProjectGlb,
+  glbProjectFileName,
   parseRoomCraftDocumentFile,
   roomCraftFileName,
   serializeRoomCraftDocument,
@@ -261,6 +263,8 @@ export function App() {
   const [modelImportError, setModelImportError] = useState<string | null>(null);
   const [parametricEditError, setParametricEditError] = useState<string | null>(null);
   const [projectFileError, setProjectFileError] = useState<string | null>(null);
+  const [glbExportState, setGlbExportState] = useState<"idle" | "exporting">("idle");
+  const [glbExportError, setGlbExportError] = useState<string | null>(null);
   const [blueprintImportState, setBlueprintImportState] = useState<"idle" | "uploading">("idle");
   const [blueprintImportError, setBlueprintImportError] = useState<string | null>(null);
   const [calibrationDraft, setCalibrationDraft] = useState<BlueprintCalibrationDraft | null>(null);
@@ -485,6 +489,46 @@ export function App() {
     }
   }
 
+  async function resolveCatalogDefinition(
+    assetId: string,
+  ): Promise<FurnitureDefinition | null> {
+    const cached = catalogDefinitions[assetId];
+    if (cached) return cached;
+
+    const reference = parseCatalogVersionAssetId(assetId);
+    if (!reference) return null;
+
+    const item = await getCatalogItem(reference.itemId);
+    const version = item.versions.find(
+      (candidate) => candidate.version === reference.version,
+    );
+    if (!version) {
+      throw new Error(
+        `Catalog version ${reference.itemId}@${reference.version} no longer exists.`,
+      );
+    }
+
+    const definition = catalogFurnitureDefinition(
+      {
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        manufacturer: item.manufacturer,
+        sku: item.sku,
+        productUrl: item.productUrl,
+        currentVersion: item.currentVersion,
+        updatedUtc: item.updatedUtc,
+        version,
+      },
+      version,
+    );
+    setCatalogDefinitions((current) => ({
+      ...current,
+      [definition.id]: definition,
+    }));
+    return definition;
+  }
+
   async function loadCatalogDefinition(assetId: string) {
     if (catalogDefinitions[assetId] || catalogLoadingRef.current.has(assetId)) return;
 
@@ -493,34 +537,7 @@ export function App() {
 
     catalogLoadingRef.current.add(assetId);
     try {
-      const item = await getCatalogItem(reference.itemId);
-      const version = item.versions.find(
-        (candidate) => candidate.version === reference.version,
-      );
-      if (!version) {
-        throw new Error(
-          `Catalog version ${reference.itemId}@${reference.version} no longer exists.`,
-        );
-      }
-
-      const definition = catalogFurnitureDefinition(
-        {
-          id: item.id,
-          name: item.name,
-          category: item.category,
-          manufacturer: item.manufacturer,
-          sku: item.sku,
-          productUrl: item.productUrl,
-          currentVersion: item.currentVersion,
-          updatedUtc: item.updatedUtc,
-          version,
-        },
-        version,
-      );
-      setCatalogDefinitions((current) => ({
-        ...current,
-        [definition.id]: definition,
-      }));
+      await resolveCatalogDefinition(assetId);
     } catch (error) {
       setCatalogSearchError(
         error instanceof Error
@@ -1276,6 +1293,63 @@ export function App() {
     );
   }
 
+  async function exportGlbProject() {
+    setGlbExportState("exporting");
+    setGlbExportError(null);
+
+    try {
+      const usedCatalogAssetIds = [
+        ...new Set(
+          document.levels
+            .flatMap((candidate) => candidate.objects)
+            .map((object) => object.assetId)
+            .filter((assetId) => parseCatalogVersionAssetId(assetId) !== null),
+        ),
+      ];
+
+      const resolved = await Promise.all(
+        usedCatalogAssetIds.map((assetId) =>
+          resolveCatalogDefinition(assetId),
+        ),
+      );
+      const definitions = new Map(
+        [
+          ...Object.values(catalogDefinitions),
+          ...resolved.filter(
+            (definition): definition is FurnitureDefinition =>
+              definition !== null,
+          ),
+        ].map((definition) => [definition.id, definition] as const),
+      );
+      const modelAssets: RuntimeModelAsset[] = [...definitions.values()]
+        .filter(
+          (definition): definition is FurnitureDefinition & { modelAssetId: string } =>
+            definition.modelAssetId !== null,
+        )
+        .map((definition) => ({
+          objectAssetId: definition.id,
+          contentUrl: assetContentUrl(definition.modelAssetId),
+        }));
+
+      const binary = await exportProjectGlb(document, {
+        activeLevelId: levelId,
+        modelAssets,
+        showCeilings: true,
+      });
+      downloadBinaryFile(
+        glbProjectFileName(document),
+        binary,
+        "model/gltf-binary",
+      );
+    } catch (error) {
+      setGlbExportError(
+        error instanceof Error ? error.message : "GLB export failed.",
+      );
+    } finally {
+      setGlbExportState("idle");
+    }
+  }
+
   async function importNativeProject(file: File) {
     setProjectFileError(null);
 
@@ -1355,6 +1429,13 @@ export function App() {
           />
           <Button variant="ghost" onClick={exportSvgFloorPlan}>
             Export SVG
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={glbExportState === "exporting"}
+            onClick={() => void exportGlbProject()}
+          >
+            {glbExportState === "exporting" ? "Exporting GLB…" : "Export GLB"}
           </Button>
           <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
             {saveStateLabel(saveState)}
@@ -1806,6 +1887,12 @@ export function App() {
                             {projectFileError ? (
                 <div className="inline-error" role="alert">
                   {projectFileError}
+                </div>
+              ) : null}
+
+              {glbExportError ? (
+                <div className="inline-error" role="alert">
+                  {glbExportError}
                 </div>
               ) : null}
 
@@ -3332,7 +3419,18 @@ function downloadTextFile(
   contents: string,
   contentType: string,
 ): void {
-  const blob = new Blob([contents], { type: contentType });
+  downloadBlob(fileName, new Blob([contents], { type: contentType }));
+}
+
+function downloadBinaryFile(
+  fileName: string,
+  contents: ArrayBuffer,
+  contentType: string,
+): void {
+  downloadBlob(fileName, new Blob([contents], { type: contentType }));
+}
+
+function downloadBlob(fileName: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
