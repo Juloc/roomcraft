@@ -771,7 +771,11 @@ export function App() {
                   >
                     Reset crop
                   </Button>
-                  <Button variant="secondary" onClick={startBlueprintCalibration}>
+                  <Button
+                    variant="secondary"
+                    disabled={selectedBlueprint.locked}
+                    onClick={startBlueprintCalibration}
+                  >
                     Calibrate scale
                   </Button>
                   <Button
