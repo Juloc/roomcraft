@@ -40,7 +40,7 @@ fi
 project_document() {
   local name="$1"
   cat <<JSON
-{"document":{"schemaVersion":1,"id":"$PROJECT_ID","name":"$name","settings":{"unitSystem":"metric","gridSizeMm":100,"angleSnapDeg":15},"levels":[{"id":"level_ground","name":"Ground floor","elevationMm":0,"defaultWallHeightMm":2500,"vertices":[],"walls":[],"openings":[],"objects":[]}]}}
+{"document":{"schemaVersion":3,"id":"$PROJECT_ID","name":"$name","settings":{"unitSystem":"metric","gridSizeMm":100,"angleSnapDeg":15},"levels":[{"id":"level_ground","name":"Ground floor","elevationMm":0,"defaultWallHeightMm":2500,"vertices":[],"walls":[],"openings":[],"objects":[],"blueprints":[]}]}}
 JSON
 }
 
@@ -62,7 +62,7 @@ python3 - "$GET_RESPONSE" <<'PY'
 import json, sys
 payload = json.loads(sys.argv[1])
 assert payload["revision"] == 1, payload
-assert payload["document"]["schemaVersion"] == 1, payload
+assert payload["document"]["schemaVersion"] == 3, payload
 PY
 
 UPDATE_RESPONSE=$(project_document "CI Project Updated" | curl --fail --silent --show-error \
@@ -93,5 +93,22 @@ if [[ "$STALE_STATUS" != "409" ]]; then
   printf 'Expected stale save to return 409, got %s\n' "$STALE_STATUS" >&2
   exit 1
 fi
+
+LEGACY_PROJECT_ID="${PROJECT_ID}_legacy"
+LEGACY_RESPONSE=$(cat <<JSON | curl --fail --silent --show-error \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data-binary @- \
+  "$API_URL/api/projects"
+{"document":{"schemaVersion":1,"id":"$LEGACY_PROJECT_ID","name":"Legacy V1","settings":{"unitSystem":"metric","gridSizeMm":100,"angleSnapDeg":15},"levels":[{"id":"level_ground","name":"Ground floor","elevationMm":0,"defaultWallHeightMm":2500,"vertices":[],"walls":[],"openings":[],"objects":[]}]}}
+JSON
+)
+
+python3 - "$LEGACY_RESPONSE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+assert payload["revision"] == 1, payload
+assert payload["document"]["schemaVersion"] == 1, payload
+PY
 
 printf 'Project persistence smoke test passed.\n'
