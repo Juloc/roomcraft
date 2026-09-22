@@ -442,4 +442,74 @@ describe("project document validation", () => {
     );
   });
 
+  it("migrates a v5 project to v6 with an empty parametric asset collection", () => {
+    const current = createEmptyProject("project_v6");
+    const legacy = {
+      schemaVersion: 5,
+      id: current.id,
+      name: current.name,
+      materials: current.materials,
+      settings: current.settings,
+      levels: current.levels,
+    } as const;
+
+    const migrated = parseProjectDocument(legacy);
+
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.parametricAssets).toEqual([]);
+    expect("parametricAssets" in legacy).toBe(false);
+  });
+
+  it("accepts a valid parametric cabinet and placed object reference", () => {
+    const document = createEmptyProject("project_parametric");
+    document.parametricAssets.push({
+      id: "cabinet_1",
+      kind: "cabinet",
+      name: "Hall cabinet",
+      panelThicknessMm: 18,
+      backThicknessMm: 8,
+      shelfThicknessMm: 18,
+      shelfCount: 3,
+      frontStyle: "double-door",
+      frontThicknessMm: 18,
+      plinthHeightMm: 100,
+      worktopThicknessMm: 0,
+      materialId: "material:white",
+    });
+    document.levels[0]?.objects.push({
+      id: "object_1",
+      assetId: "parametric:cabinet_1",
+      xMm: 1000,
+      yMm: 1000,
+      zMm: 0,
+      rotationDeg: 0,
+      widthMm: 800,
+      depthMm: 400,
+      heightMm: 2000,
+      locked: false,
+    });
+
+    expect(() => validateProjectDocument(document)).not.toThrow();
+  });
+
+  it("rejects parametric object references without a matching definition", () => {
+    const document = createEmptyProject("project_missing_parametric");
+    document.levels[0]?.objects.push({
+      id: "object_1",
+      assetId: "parametric:missing",
+      xMm: 0,
+      yMm: 0,
+      zMm: 0,
+      rotationDeg: 0,
+      widthMm: 800,
+      depthMm: 400,
+      heightMm: 2000,
+      locked: false,
+    });
+
+    expect(() => validateProjectDocument(document)).toThrow(
+      "references missing parametric asset missing",
+    );
+  });
+
 });
