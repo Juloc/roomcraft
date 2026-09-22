@@ -64,7 +64,7 @@ export async function searchCatalogItems(
 
   const response = await fetch(
     `/api/catalog/items${params.size > 0 ? `?${params.toString()}` : ""}`,
-    { signal: options.signal },
+    options.signal ? { signal: options.signal } : undefined,
   );
   if (!response.ok) {
     throw new Error(await readApiError(response, "Catalog search failed."));
@@ -78,7 +78,7 @@ export async function getCatalogItem(
 ): Promise<CatalogItemDetailDto> {
   const response = await fetch(
     `/api/catalog/items/${encodeURIComponent(itemId)}`,
-    { signal },
+    signal ? { signal } : undefined,
   );
   if (!response.ok) {
     throw new Error(await readApiError(response, "Catalog item could not be loaded."));
