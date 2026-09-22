@@ -10,10 +10,28 @@ export function validateProjectDocument(document: ProjectDocument): void {
   if (document.schemaVersion !== CURRENT_SCHEMA_VERSION) {
     throw new Error(`Unsupported schema version: ${document.schemaVersion}`);
   }
+  if (document.levels.length === 0) {
+    throw new Error("Project document must contain at least one level.");
+  }
 
+  const levelIds = new Set<string>();
   for (const level of document.levels) {
+    if (!level.id || levelIds.has(level.id)) {
+      throw new Error(`Level id ${level.id || "(empty)"} must be unique and non-empty.`);
+    }
+    levelIds.add(level.id);
+    if (!level.name.trim()) {
+      throw new Error(`Level ${level.id} name is required.`);
+    }
     assertIntegerMillimetres(level.elevationMm, "level.elevationMm");
     assertIntegerMillimetres(level.defaultWallHeightMm, "level.defaultWallHeightMm");
+    assertIntegerMillimetres(level.floorThicknessMm, "level.floorThicknessMm");
+    if (level.defaultWallHeightMm <= 0) {
+      throw new Error(`Level ${level.id} defaultWallHeightMm must be positive.`);
+    }
+    if (level.floorThicknessMm < 0) {
+      throw new Error(`Level ${level.id} floorThicknessMm cannot be negative.`);
+    }
 
     const vertexIds = new Set(level.vertices.map((vertex) => vertex.id));
     const vertexById = new Map(level.vertices.map((vertex) => [vertex.id, vertex]));
