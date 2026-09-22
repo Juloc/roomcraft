@@ -2416,6 +2416,37 @@ function PlanCanvas({
           height={viewBox.heightMm}
           fill="url(#major-grid)"
         />
+        {rooms.map((room) => {
+          const selected = room.key === selectedRoomKey;
+          return (
+            <g key={room.key} className="plan-room">
+              <polygon
+                points={room.points.map((point) => `${point.xMm},${point.yMm}`).join(" ")}
+                className={`plan-room__fill${selected ? " plan-room__fill--selected" : ""}`}
+                style={{
+                  fill: room.floorColorHex ?? undefined,
+                  opacity: room.floorColorHex ? 0.24 : undefined,
+                }}
+                onPointerDown={(event) => {
+                  if (activeTool !== "select" || event.button !== 0) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onSelectRoom(room.key);
+                }}
+              />
+              <text
+                x={room.centerXmm}
+                y={room.centerYmm}
+                className="plan-room__label"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                pointerEvents="none"
+              >
+                {formatAreaSquareMetres(room.areaMm2)} m²
+              </text>
+            </g>
+          );
+        })}
         {blueprints
           .filter((blueprint) => blueprint.visible)
           .map((blueprint) => {
@@ -2505,23 +2536,6 @@ function PlanCanvas({
             ))}
           </g>
         ) : null}
-        {rooms.map((room) => (
-          <g key={room.key} className="plan-room" pointerEvents="none">
-            <polygon
-              points={room.points.map((point) => `${point.xMm},${point.yMm}`).join(" ")}
-              className="plan-room__fill"
-            />
-            <text
-              x={room.centerXmm}
-              y={room.centerYmm}
-              className="plan-room__label"
-              textAnchor="middle"
-              dominantBaseline="middle"
-            >
-              {formatAreaSquareMetres(room.areaMm2)} m²
-            </text>
-          </g>
-        ))}
         {objects.map((object) => {
           const selected = object.id === selectedObjectId;
           const preview =
@@ -2584,6 +2598,7 @@ function PlanCanvas({
         {walls.map((wall) => {
           const selected = wall.id === selectedWallId;
           const dimension = wallDimensionPosition(wall);
+          const materialEdges = wallMaterialEdges(wall);
 
           return (
             <g key={wall.id}>
@@ -2612,6 +2627,30 @@ function PlanCanvas({
                 strokeLinecap="square"
                 pointerEvents="none"
               />
+              {wall.leftColorHex ? (
+                <line
+                  x1={materialEdges.left.x1Mm}
+                  y1={materialEdges.left.y1Mm}
+                  x2={materialEdges.left.x2Mm}
+                  y2={materialEdges.left.y2Mm}
+                  stroke={wall.leftColorHex}
+                  strokeWidth={Math.max(14, camera.mmPerPixel * 3)}
+                  className="plan-wall-material-edge"
+                  pointerEvents="none"
+                />
+              ) : null}
+              {wall.rightColorHex ? (
+                <line
+                  x1={materialEdges.right.x1Mm}
+                  y1={materialEdges.right.y1Mm}
+                  x2={materialEdges.right.x2Mm}
+                  y2={materialEdges.right.y2Mm}
+                  stroke={wall.rightColorHex}
+                  strokeWidth={Math.max(14, camera.mmPerPixel * 3)}
+                  className="plan-wall-material-edge"
+                  pointerEvents="none"
+                />
+              ) : null}
               {selected ? (
                 <text
                   x={dimension.xMm}
@@ -2863,6 +2902,32 @@ function projectedBlueprintCorners(
     xMm: blueprint.xMm + cosine * point.xMm - sine * point.yMm,
     yMm: blueprint.yMm + sine * point.xMm + cosine * point.yMm,
   }));
+}
+
+function wallMaterialEdges(
+  wall: ReturnType<typeof projectLevel2D>["walls"][number],
+) {
+  const dx = wall.x2Mm - wall.x1Mm;
+  const dy = wall.y2Mm - wall.y1Mm;
+  const length = Math.max(wall.lengthMm, 1);
+  const normalX = -dy / length;
+  const normalY = dx / length;
+  const offset = wall.thicknessMm / 2;
+
+  return {
+    left: {
+      x1Mm: wall.x1Mm + normalX * offset,
+      y1Mm: wall.y1Mm + normalY * offset,
+      x2Mm: wall.x2Mm + normalX * offset,
+      y2Mm: wall.y2Mm + normalY * offset,
+    },
+    right: {
+      x1Mm: wall.x1Mm - normalX * offset,
+      y1Mm: wall.y1Mm - normalY * offset,
+      x2Mm: wall.x2Mm - normalX * offset,
+      y2Mm: wall.y2Mm - normalY * offset,
+    },
+  };
 }
 
 function wallDimensionPosition(wall: ReturnType<typeof projectLevel2D>["walls"][number]) {
