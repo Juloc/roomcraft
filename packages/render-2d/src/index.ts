@@ -40,8 +40,17 @@ export interface ProjectedBlueprint2D {
   assetId: EntityId;
   xMm: number;
   yMm: number;
+  drawXmm: number;
+  drawYmm: number;
   widthMm: number;
   heightMm: number;
+  sourceWidthPx: number;
+  sourceHeightPx: number;
+  cropLeftPx: number;
+  cropTopPx: number;
+  cropWidthPx: number;
+  cropHeightPx: number;
+  millimetresPerPixel: number;
   rotationDeg: number;
   opacity: number;
   locked: boolean;
@@ -134,8 +143,19 @@ export function projectLevel2D(document: ProjectDocument, levelId: EntityId): Pl
         assetId: blueprint.assetId,
         xMm: blueprint.originXmm,
         yMm: blueprint.originYmm,
-        widthMm: blueprint.sourceWidthPx * blueprint.millimetresPerPixel,
-        heightMm: blueprint.sourceHeightPx * blueprint.millimetresPerPixel,
+        drawXmm:
+          blueprint.originXmm + blueprint.crop.leftPx * blueprint.millimetresPerPixel,
+        drawYmm:
+          blueprint.originYmm + blueprint.crop.topPx * blueprint.millimetresPerPixel,
+        widthMm: blueprint.crop.widthPx * blueprint.millimetresPerPixel,
+        heightMm: blueprint.crop.heightPx * blueprint.millimetresPerPixel,
+        sourceWidthPx: blueprint.sourceWidthPx,
+        sourceHeightPx: blueprint.sourceHeightPx,
+        cropLeftPx: blueprint.crop.leftPx,
+        cropTopPx: blueprint.crop.topPx,
+        cropWidthPx: blueprint.crop.widthPx,
+        cropHeightPx: blueprint.crop.heightPx,
+        millimetresPerPixel: blueprint.millimetresPerPixel,
         rotationDeg: blueprint.rotationDeg,
         opacity: blueprint.opacity,
         locked: blueprint.locked,
