@@ -2,6 +2,7 @@ import {
   CURRENT_SCHEMA_VERSION,
   createDefaultMaterials,
   type BlueprintReference,
+  type MaterialDefinition,
   type ProjectDocument,
 } from "./schema";
 import { validateProjectDocument } from "./validation";
@@ -48,6 +49,15 @@ interface ProjectDocumentV4 {
   levels: LevelV4[];
 }
 
+interface ProjectDocumentV5 {
+  schemaVersion: 5;
+  id: string;
+  name: string;
+  materials: MaterialDefinition[];
+  settings: ProjectDocument["settings"];
+  levels: CurrentLevel[];
+}
+
 export function migrateProjectDocument(value: unknown): ProjectDocument {
   if (!value || typeof value !== "object") {
     throw new Error("Project document must be an object.");
@@ -61,31 +71,43 @@ export function migrateProjectDocument(value: unknown): ProjectDocument {
   }
 
   if (schemaVersion === 1) {
-    return migrateV4ToV5(
-      migrateV3ToV4(
-        migrateV2ToV3(
-          migrateV1ToV2(value as ProjectDocumentV1),
+    return migrateV5ToV6(
+      migrateV4ToV5(
+        migrateV3ToV4(
+          migrateV2ToV3(
+            migrateV1ToV2(value as ProjectDocumentV1),
+          ),
         ),
       ),
     );
   }
 
   if (schemaVersion === 2) {
-    return migrateV4ToV5(
-      migrateV3ToV4(
-        migrateV2ToV3(value as ProjectDocumentV2),
+    return migrateV5ToV6(
+      migrateV4ToV5(
+        migrateV3ToV4(
+          migrateV2ToV3(value as ProjectDocumentV2),
+        ),
       ),
     );
   }
 
   if (schemaVersion === 3) {
-    return migrateV4ToV5(
-      migrateV3ToV4(value as ProjectDocumentV3),
+    return migrateV5ToV6(
+      migrateV4ToV5(
+        migrateV3ToV4(value as ProjectDocumentV3),
+      ),
     );
   }
 
   if (schemaVersion === 4) {
-    return migrateV4ToV5(value as ProjectDocumentV4);
+    return migrateV5ToV6(
+      migrateV4ToV5(value as ProjectDocumentV4),
+    );
+  }
+
+  if (schemaVersion === 5) {
+    return migrateV5ToV6(value as ProjectDocumentV5);
   }
 
   if (typeof schemaVersion === "number" && schemaVersion > CURRENT_SCHEMA_VERSION) {
@@ -144,7 +166,7 @@ function migrateV3ToV4(document: ProjectDocumentV3): ProjectDocumentV4 {
   };
 }
 
-function migrateV4ToV5(document: ProjectDocumentV4): ProjectDocument {
+function migrateV4ToV5(document: ProjectDocumentV4): ProjectDocumentV5 {
   return {
     ...document,
     schemaVersion: 5,
@@ -153,5 +175,13 @@ function migrateV4ToV5(document: ProjectDocumentV4): ProjectDocument {
       ...level,
       roomFinishes: [],
     })),
+  };
+}
+
+function migrateV5ToV6(document: ProjectDocumentV5): ProjectDocument {
+  return {
+    ...document,
+    schemaVersion: 6,
+    parametricAssets: [],
   };
 }

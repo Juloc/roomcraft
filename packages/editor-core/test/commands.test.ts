@@ -1,6 +1,6 @@
 import { createEmptyProject } from "@roomcraft/document";
 import { describe, expect, it } from "vitest";
-import { AddBlueprintCommand, AddLevelCommand, AddObjectCommand, AddOpeningCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, MoveBlueprintLayerCommand, RemoveBlueprintCommand, RemoveLevelCommand, RemoveObjectCommand, SetRoomSurfaceMaterialsCommand, SetWallLengthCommand, SetWallMaterialsCommand, UpdateLevelCommand, UpdateObjectCommand } from "../src";
+import { AddBlueprintCommand, AddLevelCommand, AddObjectCommand, AddOpeningCommand, AddParametricAssetCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, MoveBlueprintLayerCommand, RemoveBlueprintCommand, RemoveLevelCommand, RemoveObjectCommand, RemoveParametricAssetCommand, SetRoomSurfaceMaterialsCommand, SetWallLengthCommand, SetWallMaterialsCommand, UpdateLevelCommand, UpdateObjectCommand, UpdateParametricAssetCommand } from "../src";
 
 describe("CommandHistory", () => {
   it("adds a wall through a command and restores it through undo/redo", () => {
@@ -597,6 +597,134 @@ describe("CommandHistory", () => {
         }),
       ),
     ).toThrow("references missing material");
+  });
+
+  it("adds and updates parametric cabinet definitions through undo", () => {
+    const history = new CommandHistory(createEmptyProject("project_parametric_commands"));
+    const definition = {
+      id: "cabinet_1",
+      kind: "cabinet" as const,
+      name: "Hall cabinet",
+      panelThicknessMm: 18,
+      backThicknessMm: 8,
+      shelfThicknessMm: 18,
+      shelfCount: 3,
+      frontStyle: "double-door" as const,
+      frontThicknessMm: 18,
+      plinthHeightMm: 100,
+      worktopThicknessMm: 0,
+      materialId: "material:white",
+    };
+
+    history.execute(new AddParametricAssetCommand({ definition }));
+    expect(history.document.parametricAssets).toEqual([definition]);
+
+    history.execute(
+      new UpdateParametricAssetCommand({
+        definition: { ...definition, shelfCount: 4, materialId: "material:oak" },
+      }),
+    );
+    expect(history.document.parametricAssets[0]).toMatchObject({
+      shelfCount: 4,
+      materialId: "material:oak",
+    });
+
+    history.undo();
+    expect(history.document.parametricAssets[0]).toEqual(definition);
+
+    history.undo();
+    expect(history.document.parametricAssets).toEqual([]);
+  });
+
+  it("prevents deleting a parametric definition while an object uses it", () => {
+    const history = new CommandHistory(createEmptyProject("project_parametric_in_use"));
+    const definition = {
+      id: "cabinet_1",
+      kind: "cabinet" as const,
+      name: "Cabinet",
+      panelThicknessMm: 18,
+      backThicknessMm: 8,
+      shelfThicknessMm: 18,
+      shelfCount: 3,
+      frontStyle: "double-door" as const,
+      frontThicknessMm: 18,
+      plinthHeightMm: 100,
+      worktopThicknessMm: 0,
+      materialId: "material:white",
+    };
+    history.execute(new AddParametricAssetCommand({ definition }));
+    history.execute(
+      new AddObjectCommand({
+        levelId: "level_ground",
+        object: {
+          id: "object_1",
+          assetId: "parametric:cabinet_1",
+          xMm: 0,
+          yMm: 0,
+          zMm: 0,
+          rotationDeg: 0,
+          widthMm: 800,
+          depthMm: 400,
+          heightMm: 2000,
+          locked: false,
+        },
+      }),
+    );
+
+    expect(() =>
+      history.execute(new RemoveParametricAssetCommand("cabinet_1")),
+    ).toThrow("is still used by object object_1");
+
+    history.execute(new RemoveObjectCommand("level_ground", "object_1"));
+    history.execute(new RemoveParametricAssetCommand("cabinet_1"));
+    expect(history.document.parametricAssets).toEqual([]);
+
+    history.undo();
+    expect(history.document.parametricAssets[0]?.id).toBe("cabinet_1");
+  });
+
+  it("rejects cabinet definition changes that make placed instances impossible", () => {
+    const history = new CommandHistory(createEmptyProject("project_parametric_limits"));
+    const definition = {
+      id: "cabinet_1",
+      kind: "cabinet" as const,
+      name: "Cabinet",
+      panelThicknessMm: 18,
+      backThicknessMm: 8,
+      shelfThicknessMm: 18,
+      shelfCount: 3,
+      frontStyle: "open" as const,
+      frontThicknessMm: 18,
+      plinthHeightMm: 100,
+      worktopThicknessMm: 0,
+      materialId: "material:white",
+    };
+    history.execute(new AddParametricAssetCommand({ definition }));
+    history.execute(
+      new AddObjectCommand({
+        levelId: "level_ground",
+        object: {
+          id: "object_1",
+          assetId: "parametric:cabinet_1",
+          xMm: 0,
+          yMm: 0,
+          zMm: 0,
+          rotationDeg: 0,
+          widthMm: 800,
+          depthMm: 400,
+          heightMm: 2000,
+          locked: false,
+        },
+      }),
+    );
+
+    expect(() =>
+      history.execute(
+        new UpdateParametricAssetCommand({
+          definition: { ...definition, shelfCount: 30 },
+        }),
+      ),
+    ).toThrow("heightMm must be at least");
   });
 
 });

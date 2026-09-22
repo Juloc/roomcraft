@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 5 as const;
+export const CURRENT_SCHEMA_VERSION = 6 as const;
 
 export type EntityId = string;
 export type Millimetres = number;
@@ -8,6 +8,7 @@ export interface ProjectDocument {
   id: EntityId;
   name: string;
   materials: MaterialDefinition[];
+  parametricAssets: ParametricFurnitureDefinition[];
   settings: ProjectSettings;
   levels: Level[];
 }
@@ -24,6 +25,23 @@ export interface MaterialDefinition {
   baseColorHex: string;
   roughness: number;
   metalness: number;
+}
+
+export type ParametricFurnitureDefinition = ParametricCabinetDefinition;
+
+export interface ParametricCabinetDefinition {
+  id: EntityId;
+  kind: "cabinet";
+  name: string;
+  panelThicknessMm: Millimetres;
+  backThicknessMm: Millimetres;
+  shelfThicknessMm: Millimetres;
+  shelfCount: number;
+  frontStyle: "open" | "single-door" | "double-door";
+  frontThicknessMm: Millimetres;
+  plinthHeightMm: Millimetres;
+  worktopThicknessMm: Millimetres;
+  materialId: EntityId | null;
 }
 
 export interface Level {
@@ -159,6 +177,7 @@ export function createEmptyProject(id: EntityId, name = "Untitled project"): Pro
     id,
     name,
     materials: createDefaultMaterials(),
+    parametricAssets: [],
     settings: {
       unitSystem: "metric",
       gridSizeMm: 100,

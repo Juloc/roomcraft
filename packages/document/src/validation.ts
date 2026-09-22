@@ -1,7 +1,9 @@
 import {
   CURRENT_SCHEMA_VERSION,
   type Level,
+  type ObjectInstance,
   type Opening,
+  type ParametricCabinetDefinition,
   type ProjectDocument,
   type Wall,
 } from "./schema";
@@ -41,6 +43,77 @@ export function validateProjectDocument(document: ProjectDocument): void {
     }
     validateUnitInterval(material.roughness, `Material ${material.id} roughness`);
     validateUnitInterval(material.metalness, `Material ${material.id} metalness`);
+  }
+
+  const parametricAssetIds = new Set<string>();
+  const parametricAssetById = new Map<string, ParametricCabinetDefinition>();
+  for (const asset of document.parametricAssets) {
+    if (!asset.id || parametricAssetIds.has(asset.id)) {
+      throw new Error(
+        `Parametric asset id ${asset.id || "(empty)"} must be unique and non-empty.`,
+      );
+    }
+    parametricAssetIds.add(asset.id);
+
+    if (asset.kind !== "cabinet") {
+      throw new Error(`Unsupported parametric asset kind: ${String(asset.kind)}.`);
+    }
+    if (!asset.name.trim()) {
+      throw new Error(`Parametric cabinet ${asset.id} name is required.`);
+    }
+
+    for (const [field, value] of [
+      ["panelThicknessMm", asset.panelThicknessMm],
+      ["backThicknessMm", asset.backThicknessMm],
+      ["shelfThicknessMm", asset.shelfThicknessMm],
+      ["frontThicknessMm", asset.frontThicknessMm],
+    ] as const) {
+      assertIntegerMillimetres(value, `parametricCabinet.${field}`);
+      if (value <= 0) {
+        throw new Error(
+          `Parametric cabinet ${asset.id} ${field} must be positive.`,
+        );
+      }
+    }
+
+    for (const [field, value] of [
+      ["plinthHeightMm", asset.plinthHeightMm],
+      ["worktopThicknessMm", asset.worktopThicknessMm],
+    ] as const) {
+      assertIntegerMillimetres(value, `parametricCabinet.${field}`);
+      if (value < 0) {
+        throw new Error(
+          `Parametric cabinet ${asset.id} ${field} cannot be negative.`,
+        );
+      }
+    }
+
+    if (
+      !Number.isSafeInteger(asset.shelfCount) ||
+      asset.shelfCount < 0 ||
+      asset.shelfCount > 64
+    ) {
+      throw new Error(
+        `Parametric cabinet ${asset.id} shelfCount must be an integer between 0 and 64.`,
+      );
+    }
+
+    if (
+      asset.frontStyle !== "open" &&
+      asset.frontStyle !== "single-door" &&
+      asset.frontStyle !== "double-door"
+    ) {
+      throw new Error(
+        `Parametric cabinet ${asset.id} frontStyle is invalid.`,
+      );
+    }
+
+    validateMaterialReference(
+      asset.materialId,
+      materialIds,
+      `Parametric cabinet ${asset.id} materialId`,
+    );
+    parametricAssetById.set(asset.id, asset);
   }
 
   const levelIds = new Set<string>();
@@ -121,6 +194,16 @@ export function validateProjectDocument(document: ProjectDocument): void {
       objectIds.add(object.id);
       if (!object.assetId) {
         throw new Error(`Object ${object.id} assetId is required.`);
+      }
+      if (object.assetId.startsWith("parametric:")) {
+        const definitionId = object.assetId.slice("parametric:".length);
+        const definition = parametricAssetById.get(definitionId);
+        if (!definition) {
+          throw new Error(
+            `Object ${object.id} references missing parametric asset ${definitionId || "(empty)"}.`,
+          );
+        }
+        validateParametricObjectDimensions(object, definition);
       }
 
       for (const [field, value] of [
@@ -269,6 +352,36 @@ export function validateProjectDocument(document: ProjectDocument): void {
         }
       }
     }
+  }
+}
+
+function validateParametricObjectDimensions(
+  object: ObjectInstance,
+  definition: ParametricCabinetDefinition,
+): void {
+  const minimumWidthMm = definition.panelThicknessMm * 2 + 200;
+  const minimumDepthMm = definition.backThicknessMm + 150;
+  const minimumHeightMm =
+    definition.plinthHeightMm +
+    definition.worktopThicknessMm +
+    definition.panelThicknessMm * 2 +
+    definition.shelfCount * definition.shelfThicknessMm +
+    (definition.shelfCount + 1) * 60;
+
+  if (object.widthMm < minimumWidthMm) {
+    throw new Error(
+      `Object ${object.id} widthMm must be at least ${minimumWidthMm} mm for parametric cabinet ${definition.id}.`,
+    );
+  }
+  if (object.depthMm < minimumDepthMm) {
+    throw new Error(
+      `Object ${object.id} depthMm must be at least ${minimumDepthMm} mm for parametric cabinet ${definition.id}.`,
+    );
+  }
+  if (object.heightMm < minimumHeightMm) {
+    throw new Error(
+      `Object ${object.id} heightMm must be at least ${minimumHeightMm} mm for parametric cabinet ${definition.id}.`,
+    );
   }
 }
 

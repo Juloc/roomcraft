@@ -1,5 +1,5 @@
 {
-  "name": "@roomcraft/render-3d",
+  "name": "@roomcraft/parametric",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,14 +9,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@roomcraft/document": "*",
-    "@roomcraft/geometry": "*",
-    "three": "0.186.0",
-    "@roomcraft/catalog": "*",
-    "@roomcraft/parametric": "*"
+    "@roomcraft/document": "*"
   },
   "devDependencies": {
-    "@types/three": "0.186.0",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
   }

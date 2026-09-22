@@ -197,9 +197,9 @@ public static class ProjectsModule
 
         if (!document.TryGetProperty("schemaVersion", out var schemaVersionElement) ||
             !schemaVersionElement.TryGetInt32(out var schemaVersion) ||
-            schemaVersion is < 1 or > 5)
+            schemaVersion is < 1 or > 6)
         {
-            throw new ArgumentException("Project schemaVersion must be between 1 and 5.");
+            throw new ArgumentException("Project schemaVersion must be between 1 and 6.");
         }
 
         if (!document.TryGetProperty("id", out var idElement) ||
