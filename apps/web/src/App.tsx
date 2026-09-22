@@ -79,12 +79,16 @@ import {
 } from "@roomcraft/render-3d";
 import {
   Button,
+  Icon,
+  IconButton,
   LayerList,
+  Menu,
   LengthField,
   NumberField,
   Panel,
   SegmentedControl,
   SelectField,
+  Sheet,
   TextField,
   Toolbar,
 } from "@roomcraft/ui";
@@ -234,9 +238,14 @@ function parametricFurnitureDefinition(
   };
 }
 
-export function App() {
+export interface EditorAppProps {
+  projectId: string;
+  onExit(): void;
+}
+
+export function EditorApp({ projectId, onExit }: EditorAppProps) {
   const session = useProjectSession(() =>
-    createEmptyProject(getOrCreateProjectId(), "My apartment"),
+    createEmptyProject(projectId, "My apartment"),
   );
   const { document, revision, saveState, saveError } = session;
 
@@ -247,6 +256,8 @@ export function App() {
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
   const [ghostMode, setGhostMode] = useState<GhostMode>("off");
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
+  const [mobilePropertiesOpen, setMobilePropertiesOpen] = useState(false);
+  const isMobile = useMediaQuery("(max-width: 820px)");
   const [activeFurnitureAssetId, setActiveFurnitureAssetId] =
     useState<string>("builtin:box");
   const [catalogQuery, setCatalogQuery] = useState("");
@@ -279,6 +290,10 @@ export function App() {
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
   const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
+
+  useEffect(() => {
+    if (selection.primary) setMobilePropertiesOpen(true);
+  }, [selection.primary]);
 
   useEffect(() => {
     const usedCatalogAssets = new Set(
@@ -1420,21 +1435,946 @@ export function App() {
     session.redo();
   }
 
+  const propertiesPanel = (
+    <Panel>
+                <div className="properties__content">
+                  <div className="level-editor">
+                    <span className="eyebrow">Level</span>
+                    <select
+                      className="rc-input level-select"
+                      value={levelId}
+                      aria-label="Active level"
+                      onChange={(event) => changeActiveLevel(event.target.value)}
+                    >
+                      {document.levels.map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.name}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="rc-field">
+                      <span className="rc-field__label">Name</span>
+                      <input
+                        key={`${level.id}:${level.name}`}
+                        className="rc-input"
+                        type="text"
+                        defaultValue={level.name}
+                        onBlur={(event) => {
+                          const name = event.currentTarget.value.trim();
+                          if (!name || name === level.name) return;
+                          updateActiveLevel({ name });
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                          if (event.key === "Escape") {
+                            event.currentTarget.value = level.name;
+                            event.currentTarget.blur();
+                          }
+                        }}
+                      />
+                    </label>
+                    <NumberField
+                      label="Elevation"
+                      value={level.elevationMm}
+                      step={1}
+                      suffix="mm"
+                      onCommit={(value) =>
+                        updateActiveLevel({ elevationMm: Math.round(value) })
+                      }
+                    />
+                    <NumberField
+                      label="Wall height"
+                      value={level.defaultWallHeightMm}
+                      min={100}
+                      step={1}
+                      suffix="mm"
+                      onCommit={(value) =>
+                        updateActiveLevel({ defaultWallHeightMm: Math.round(value) })
+                      }
+                    />
+                    <NumberField
+                      label="Floor thickness"
+                      value={level.floorThicknessMm}
+                      min={0}
+                      step={1}
+                      suffix="mm"
+                      onCommit={(value) =>
+                        updateActiveLevel({ floorThicknessMm: Math.round(value) })
+                      }
+                    />
+                    <div className="level-editor__actions">
+                      <Button variant="secondary" onClick={addLevel}>
+                        Add level
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={duplicateActiveLevelShell}
+                        title="Copy walls, vertices and openings into a new level"
+                      >
+                        Duplicate shell
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={document.levels.length <= 1}
+                        onClick={removeActiveLevel}
+                      >
+                        Delete level
+                      </Button>
+                    </div>
+                    <SegmentedControl
+                      value={effectiveGhostMode}
+                      options={ghostOptions}
+                      onChange={setGhostMode}
+                      ariaLabel="Reference level overlay"
+                    />
+                  </div>
+    
+                  <dl className="stats">
+                    <div>
+                      <dt>Walls</dt>
+                      <dd>{level.walls.length}</dd>
+                    </div>
+                    <div>
+                      <dt>Openings</dt>
+                      <dd>{level.openings.length}</dd>
+                    </div>
+                    <div>
+                      <dt>Rooms</dt>
+                      <dd>{projection.rooms.length}</dd>
+                    </div>
+                    <div>
+                      <dt>Topology</dt>
+                      <dd>{projection.topologyIssues.length === 0 ? "OK" : `${projection.topologyIssues.length} issue(s)`}</dd>
+                    </div>
+                    <div>
+                      <dt>Levels</dt>
+                      <dd>{document.levels.length}</dd>
+                    </div>
+                    <div>
+                      <dt>Grid</dt>
+                      <dd>{document.settings.gridSizeMm} mm</dd>
+                    </div>
+                    <div>
+                      <dt>Revision</dt>
+                      <dd>{revision ?? "—"}</dd>
+                    </div>
+                  </dl>
+    
+                  {activeTool === "furniture" ? (
+                    <div className="furniture-palette">
+                      <span className="eyebrow">Furniture</span>
+    
+                      <div className="furniture-palette__section">
+                        <strong className="furniture-palette__section-title">
+                          Quick shapes
+                        </strong>
+                        <div className="furniture-palette__grid">
+                          {BUILTIN_FURNITURE.map((asset) => (
+                            <Button
+                              key={asset.id}
+                              type="button"
+                              variant={
+                                asset.id === activeFurnitureAssetId
+                                  ? "primary"
+                                  : "secondary"
+                              }
+                              onClick={() => setActiveFurnitureAssetId(asset.id)}
+                            >
+                              {asset.name}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+    
+                      <div className="furniture-palette__section">
+                        <strong className="furniture-palette__section-title">
+                          Custom furniture
+                        </strong>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={createParametricCabinet}
+                        >
+                          New cabinet
+                        </Button>
+                        {document.parametricAssets.length > 0 ? (
+                          <div className="furniture-palette__grid">
+                            {document.parametricAssets.map((definition) => {
+                              const assetId = parametricAssetId(definition.id);
+                              return (
+                                <Button
+                                  key={definition.id}
+                                  type="button"
+                                  variant={
+                                    assetId === activeFurnitureAssetId
+                                      ? "primary"
+                                      : "secondary"
+                                  }
+                                  onClick={() => setActiveFurnitureAssetId(assetId)}
+                                >
+                                  {definition.name}
+                                </Button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                        <span className="property-hint">
+                          Cabinets stay parametric: resize the placed object and
+                          change shelves, fronts and construction later.
+                        </span>
+                      </div>
+    
+                      <div className="furniture-palette__section">
+                        <strong className="furniture-palette__section-title">
+                          My 3D models
+                        </strong>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          disabled={modelImportState === "importing"}
+                          onClick={() => modelFileRef.current?.click()}
+                        >
+                          {modelImportState === "importing" ? "Importing…" : "Import GLB"}
+                        </Button>
+                        <input
+                          ref={modelFileRef}
+                          className="visually-hidden"
+                          type="file"
+                          accept=".glb,model/gltf-binary"
+                          tabIndex={-1}
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0];
+                            event.currentTarget.value = "";
+                            if (file) void importGlbFurniture(file);
+                          }}
+                        />
+                        {modelImportError ? (
+                          <div className="inline-error" role="alert">
+                            {modelImportError}
+                          </div>
+                        ) : null}
+                        <span className="property-hint">
+                          glTF 2.0 binary models are measured in metres, centered and
+                          placed on the floor automatically.
+                        </span>
+                      </div>
+    
+                      <form
+                        className="catalog-search"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void runCatalogSearch();
+                        }}
+                      >
+                        <TextField
+                          label="Catalog search"
+                          value={catalogQuery}
+                          onChange={setCatalogQuery}
+                          placeholder="Name, manufacturer or SKU"
+                          inputMode="search"
+                        />
+                        <Button
+                          type="submit"
+                          variant="secondary"
+                          disabled={catalogSearchState === "loading"}
+                        >
+                          {catalogSearchState === "loading"
+                            ? "Searching…"
+                            : "Search"}
+                        </Button>
+                      </form>
+    
+                      {catalogSearchError ? (
+                        <div className="inline-error" role="alert">
+                          {catalogSearchError}
+                        </div>
+                      ) : null}
+    
+                      {catalogSearchState === "ready" ? (
+                        <span className="property-hint">
+                          {catalogResultTotal} catalog item
+                          {catalogResultTotal === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
+    
+                      <div className="catalog-results" role="list">
+                        {catalogResults.map((asset) => (
+                          <Button
+                            key={asset.id}
+                            type="button"
+                            className="catalog-card"
+                            variant={
+                              asset.id === activeFurnitureAssetId
+                                ? "primary"
+                                : "secondary"
+                            }
+                            onClick={() => setActiveFurnitureAssetId(asset.id)}
+                          >
+                            {asset.thumbnailAssetId ? (
+                              <img
+                                className="catalog-card__thumbnail"
+                                src={assetContentUrl(asset.thumbnailAssetId)}
+                                alt=""
+                              />
+                            ) : (
+                              <span
+                                className="catalog-card__placeholder"
+                                aria-hidden="true"
+                              >
+                                □
+                              </span>
+                            )}
+                            <span className="catalog-card__body">
+                              <strong>{asset.name}</strong>
+                              <span>
+                                {asset.manufacturer ?? asset.category}
+                                {asset.sku ? ` · ${asset.sku}` : ""}
+                              </span>
+                              <span>
+                                {asset.defaultDimensionsMm.widthMm} ×{" "}
+                                {asset.defaultDimensionsMm.depthMm} ×{" "}
+                                {asset.defaultDimensionsMm.heightMm} mm
+                              </span>
+                            </span>
+                          </Button>
+                        ))}
+                      </div>
+    
+                      <span className="property-hint">
+                        Catalog products are placed with their current immutable
+                        version and exact dimensions.
+                      </span>
+                    </div>
+                  ) : null}
+    
+                                {projectFileError ? (
+                    <div className="inline-error" role="alert">
+                      {projectFileError}
+                    </div>
+                  ) : null}
+    
+                  {glbExportError ? (
+                    <div className="inline-error" role="alert">
+                      {glbExportError}
+                    </div>
+                  ) : null}
+    
+                  {rasterExportError ? (
+                    <div className="inline-error" role="alert">
+                      {rasterExportError}
+                    </div>
+                  ) : null}
+    
+                  {blueprintImportError ? (
+                    <div className="inline-error" role="alert">
+                      {blueprintImportError}
+                    </div>
+                  ) : null}
+    
+                  <div className="blueprint-layers">
+                    <span className="eyebrow">Blueprint layers</span>
+                    <LayerList
+                      emptyLabel="No blueprints on this level"
+                      items={[...level.blueprints]
+                        .map((blueprint, index) => ({
+                          id: blueprint.id,
+                          label: `Blueprint ${index + 1}`,
+                          selected: blueprint.id === selectedBlueprintId,
+                          visible: blueprint.visible,
+                          locked: blueprint.locked,
+                          canMoveUp: index < level.blueprints.length - 1,
+                          canMoveDown: index > 0,
+                        }))
+                        .reverse()}
+                      onSelect={selectBlueprint}
+                      onToggleVisible={(blueprintId) => {
+                        const blueprint = level.blueprints.find(
+                          (candidate) => candidate.id === blueprintId,
+                        );
+                        if (blueprint) {
+                          updateBlueprint(blueprintId, { visible: !blueprint.visible });
+                        }
+                      }}
+                      onToggleLocked={(blueprintId) => {
+                        const blueprint = level.blueprints.find(
+                          (candidate) => candidate.id === blueprintId,
+                        );
+                        if (blueprint) {
+                          updateBlueprint(blueprintId, { locked: !blueprint.locked });
+                        }
+                      }}
+                      onMoveUp={(blueprintId) => moveBlueprintLayer(blueprintId, 1)}
+                      onMoveDown={(blueprintId) => moveBlueprintLayer(blueprintId, -1)}
+                      onDelete={removeBlueprint}
+                    />
+                  </div>
+    
+                  {selectedWall ? (
+                    <div className="selection-properties">
+                      <span className="eyebrow">Selected wall</span>
+                      <LengthField
+                        label="Length"
+                        valueMm={Math.round(selectedWall.lengthMm)}
+                        minMm={100}
+                        helpText="The start vertex stays fixed; connected walls at the moved endpoint follow it."
+                        onCommit={setSelectedWallLength}
+                      />
+                      <SelectField
+                        label="Left surface"
+                        value={selectedWall.leftMaterialId ?? ""}
+                        options={materialOptions}
+                        helpText="Left side when looking from the wall start toward its end."
+                        onChange={(value) => setSelectedWallMaterial("left", value)}
+                      />
+                      <SelectField
+                        label="Right surface"
+                        value={selectedWall.rightMaterialId ?? ""}
+                        options={materialOptions}
+                        onChange={(value) => setSelectedWallMaterial("right", value)}
+                      />
+                    </div>
+                  ) : null}
+    
+                  {selectedRoom ? (
+                    <div className="selection-properties">
+                      <span className="eyebrow">Selected room</span>
+                      <strong>{formatAreaSquareMetres(selectedRoom.areaMm2)} m²</strong>
+                      <SelectField
+                        label="Floor"
+                        value={selectedRoom.floorMaterialId ?? ""}
+                        options={materialOptions}
+                        onChange={(value) => setSelectedRoomMaterial("floor", value)}
+                      />
+                      <SelectField
+                        label="Ceiling"
+                        value={selectedRoom.ceilingMaterialId ?? ""}
+                        options={materialOptions}
+                        helpText="Enable Ceilings in 3D to preview the ceiling surface."
+                        onChange={(value) => setSelectedRoomMaterial("ceiling", value)}
+                      />
+                    </div>
+                  ) : null}
+    
+                  {selectedBlueprint ? (
+                    <div className="selection-properties">
+                      <span className="eyebrow">Selected blueprint</span>
+                      <dl className="stats">
+                        <div>
+                          <dt>Image</dt>
+                          <dd>{selectedBlueprint.sourceWidthPx} × {selectedBlueprint.sourceHeightPx}px</dd>
+                        </div>
+                        <div>
+                          <dt>Scale</dt>
+                          <dd>{selectedBlueprint.millimetresPerPixel.toFixed(3)} mm/px</dd>
+                        </div>
+                      </dl>
+                      <NumberField
+                        label="X"
+                        value={selectedBlueprint.originXmm}
+                        step={1}
+                        suffix="mm"
+                        disabled={selectedBlueprint.locked}
+                        onCommit={(value) =>
+                          updateSelectedBlueprint({ originXmm: Math.round(value) })
+                        }
+                      />
+                      <NumberField
+                        label="Y"
+                        value={selectedBlueprint.originYmm}
+                        step={1}
+                        suffix="mm"
+                        disabled={selectedBlueprint.locked}
+                        onCommit={(value) =>
+                          updateSelectedBlueprint({ originYmm: Math.round(value) })
+                        }
+                      />
+                      <NumberField
+                        label="Rotation"
+                        value={normalizeDegrees(selectedBlueprint.rotationDeg)}
+                        step={0.1}
+                        suffix="°"
+                        disabled={selectedBlueprint.locked}
+                        onCommit={(value) =>
+                          updateSelectedBlueprint({ rotationDeg: normalizeDegrees(value) })
+                        }
+                      />
+                      <NumberField
+                        label="Opacity"
+                        value={selectedBlueprint.opacity * 100}
+                        min={0}
+                        max={100}
+                        step={1}
+                        suffix="%"
+                        onCommit={(value) =>
+                          updateSelectedBlueprint({ opacity: value / 100 })
+                        }
+                      />
+                      <div className="blueprint-crop-fields">
+                        <NumberField
+                          label="Crop left"
+                          value={selectedBlueprint.crop.leftPx}
+                          min={0}
+                          max={
+                            selectedBlueprint.crop.leftPx +
+                            selectedBlueprint.crop.widthPx -
+                            1
+                          }
+                          step={1}
+                          suffix="px"
+                          disabled={selectedBlueprint.locked}
+                          onCommit={(value) => {
+                            const rightEdge =
+                              selectedBlueprint.crop.leftPx +
+                              selectedBlueprint.crop.widthPx;
+                            const leftPx = Math.round(value);
+                            updateSelectedBlueprint({
+                              crop: {
+                                ...selectedBlueprint.crop,
+                                leftPx,
+                                widthPx: rightEdge - leftPx,
+                              },
+                            });
+                          }}
+                        />
+                        <NumberField
+                          label="Crop top"
+                          value={selectedBlueprint.crop.topPx}
+                          min={0}
+                          max={
+                            selectedBlueprint.crop.topPx +
+                            selectedBlueprint.crop.heightPx -
+                            1
+                          }
+                          step={1}
+                          suffix="px"
+                          disabled={selectedBlueprint.locked}
+                          onCommit={(value) => {
+                            const bottomEdge =
+                              selectedBlueprint.crop.topPx +
+                              selectedBlueprint.crop.heightPx;
+                            const topPx = Math.round(value);
+                            updateSelectedBlueprint({
+                              crop: {
+                                ...selectedBlueprint.crop,
+                                topPx,
+                                heightPx: bottomEdge - topPx,
+                              },
+                            });
+                          }}
+                        />
+                        <NumberField
+                          label="Crop right"
+                          value={
+                            selectedBlueprint.sourceWidthPx -
+                            selectedBlueprint.crop.leftPx -
+                            selectedBlueprint.crop.widthPx
+                          }
+                          min={0}
+                          max={
+                            selectedBlueprint.sourceWidthPx -
+                            selectedBlueprint.crop.leftPx -
+                            1
+                          }
+                          step={1}
+                          suffix="px"
+                          disabled={selectedBlueprint.locked}
+                          onCommit={(value) => {
+                            const rightPx = Math.round(value);
+                            updateSelectedBlueprint({
+                              crop: {
+                                ...selectedBlueprint.crop,
+                                widthPx:
+                                  selectedBlueprint.sourceWidthPx -
+                                  selectedBlueprint.crop.leftPx -
+                                  rightPx,
+                              },
+                            });
+                          }}
+                        />
+                        <NumberField
+                          label="Crop bottom"
+                          value={
+                            selectedBlueprint.sourceHeightPx -
+                            selectedBlueprint.crop.topPx -
+                            selectedBlueprint.crop.heightPx
+                          }
+                          min={0}
+                          max={
+                            selectedBlueprint.sourceHeightPx -
+                            selectedBlueprint.crop.topPx -
+                            1
+                          }
+                          step={1}
+                          suffix="px"
+                          disabled={selectedBlueprint.locked}
+                          onCommit={(value) => {
+                            const bottomPx = Math.round(value);
+                            updateSelectedBlueprint({
+                              crop: {
+                                ...selectedBlueprint.crop,
+                                heightPx:
+                                  selectedBlueprint.sourceHeightPx -
+                                  selectedBlueprint.crop.topPx -
+                                  bottomPx,
+                              },
+                            });
+                          }}
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        disabled={selectedBlueprint.locked}
+                        onClick={() =>
+                          updateSelectedBlueprint({
+                            crop: {
+                              leftPx: 0,
+                              topPx: 0,
+                              widthPx: selectedBlueprint.sourceWidthPx,
+                              heightPx: selectedBlueprint.sourceHeightPx,
+                            },
+                          })
+                        }
+                      >
+                        Reset crop
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={selectedBlueprint.locked}
+                        onClick={startBlueprintCalibration}
+                      >
+                        Calibrate scale
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => updateSelectedBlueprint({ visible: !selectedBlueprint.visible })}
+                      >
+                        {selectedBlueprint.visible ? "Hide blueprint" : "Show blueprint"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => updateSelectedBlueprint({ locked: !selectedBlueprint.locked })}
+                      >
+                        {selectedBlueprint.locked ? "Unlock blueprint" : "Lock blueprint"}
+                      </Button>
+                      {calibrationDraft?.blueprintId === selectedBlueprint.id &&
+                      calibrationDraft.firstPoint &&
+                      calibrationDraft.secondPoint ? (
+                        <LengthField
+                          label="Known distance"
+                          valueMm={Math.max(
+                            1,
+                            Math.round(
+                              Math.hypot(
+                                calibrationDraft.secondPoint.xMm - calibrationDraft.firstPoint.xMm,
+                                calibrationDraft.secondPoint.yMm - calibrationDraft.firstPoint.yMm,
+                              ),
+                            ),
+                          )}
+                          minMm={1}
+                          helpText="Enter the real distance between the two points."
+                          onCommit={commitBlueprintCalibration}
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+    
+                  {selectedObject ? (
+                    <div className="selection-properties">
+                      <span className="eyebrow">
+                        Selected {selectedObjectDefinition?.name ?? "object"}
+                      </span>
+                      {selectedObjectDefinition?.source === "catalog" ? (
+                        <>
+                          <dl className="stats stats--compact">
+                            <div>
+                              <dt>Source</dt>
+                              <dd>Catalog</dd>
+                            </div>
+                            <div>
+                              <dt>Manufacturer</dt>
+                              <dd>{selectedObjectDefinition.manufacturer ?? "—"}</dd>
+                            </div>
+                            <div>
+                              <dt>SKU</dt>
+                              <dd>{selectedObjectDefinition.sku ?? "—"}</dd>
+                            </div>
+                          </dl>
+                          {selectedObjectDefinition.productUrl ? (
+                            <a
+                              className="product-link"
+                              href={selectedObjectDefinition.productUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open product page
+                            </a>
+                          ) : null}
+                        </>
+                      ) : selectedObjectIsCatalog ? (
+                        <span className="property-hint">
+                          Loading the saved catalog version…
+                        </span>
+                      ) : null}
+    
+                      {selectedParametricDefinition ? (
+                        <div className="cabinet-builder">
+                          <strong>Cabinet construction</strong>
+                          <SelectField
+                            label="Front"
+                            value={selectedParametricDefinition.frontStyle}
+                            options={[
+                              { value: "open", label: "Open" },
+                              { value: "single-door", label: "Single door" },
+                              { value: "double-door", label: "Double door" },
+                            ]}
+                            disabled={selectedObject.locked}
+                            onChange={(value) =>
+                              updateSelectedParametricDefinition({
+                                frontStyle: value as ParametricCabinetDefinition["frontStyle"],
+                              })
+                            }
+                          />
+                          <SelectField
+                            label="Material"
+                            value={selectedParametricDefinition.materialId ?? ""}
+                            options={materialOptions}
+                            disabled={selectedObject.locked}
+                            onChange={(value) =>
+                              updateSelectedParametricDefinition({
+                                materialId: value || null,
+                              })
+                            }
+                          />
+                          <LengthField
+                            label="Panel thickness"
+                            valueMm={selectedParametricDefinition.panelThicknessMm}
+                            minMm={1}
+                            disabled={selectedObject.locked}
+                            onCommit={(valueMm) =>
+                              updateSelectedParametricDefinition({
+                                panelThicknessMm: valueMm,
+                              })
+                            }
+                          />
+                          <LengthField
+                            label="Back thickness"
+                            valueMm={selectedParametricDefinition.backThicknessMm}
+                            minMm={1}
+                            disabled={selectedObject.locked}
+                            onCommit={(valueMm) =>
+                              updateSelectedParametricDefinition({
+                                backThicknessMm: valueMm,
+                              })
+                            }
+                          />
+                          <LengthField
+                            label="Shelf thickness"
+                            valueMm={selectedParametricDefinition.shelfThicknessMm}
+                            minMm={1}
+                            disabled={selectedObject.locked}
+                            onCommit={(valueMm) =>
+                              updateSelectedParametricDefinition({
+                                shelfThicknessMm: valueMm,
+                              })
+                            }
+                          />
+                          <NumberField
+                            label="Shelves"
+                            value={selectedParametricDefinition.shelfCount}
+                            min={0}
+                            step={1}
+                            disabled={selectedObject.locked}
+                            onCommit={(value) =>
+                              updateSelectedParametricDefinition({
+                                shelfCount: Math.max(
+                                  0,
+                                  Math.min(64, Math.round(value)),
+                                ),
+                              })
+                            }
+                          />
+                          <LengthField
+                            label="Front thickness"
+                            valueMm={selectedParametricDefinition.frontThicknessMm}
+                            minMm={1}
+                            disabled={selectedObject.locked}
+                            onCommit={(valueMm) =>
+                              updateSelectedParametricDefinition({
+                                frontThicknessMm: valueMm,
+                              })
+                            }
+                          />
+                          <NumberField
+                            label="Plinth height"
+                            value={selectedParametricDefinition.plinthHeightMm}
+                            min={0}
+                            step={1}
+                            suffix="mm"
+                            disabled={selectedObject.locked}
+                            onCommit={(value) =>
+                              updateSelectedParametricDefinition({
+                                plinthHeightMm: Math.max(0, Math.round(value)),
+                              })
+                            }
+                          />
+                          <NumberField
+                            label="Worktop thickness"
+                            value={selectedParametricDefinition.worktopThicknessMm}
+                            min={0}
+                            step={1}
+                            suffix="mm"
+                            disabled={selectedObject.locked}
+                            onCommit={(value) =>
+                              updateSelectedParametricDefinition({
+                                worktopThicknessMm: Math.max(0, Math.round(value)),
+                              })
+                            }
+                          />
+                          {parametricEditError ? (
+                            <div className="inline-error" role="alert">
+                              {parametricEditError}
+                            </div>
+                          ) : null}
+                          <div className="cabinet-cut-list">
+                            <strong>Cut list</strong>
+                            {selectedCabinetCutList.map((item, index) => (
+                              <div
+                                className="cabinet-cut-list__row"
+                                key={`${item.label}:${item.lengthMm}:${item.widthMm}:${item.thicknessMm}:${index}`}
+                              >
+                                <span>
+                                  {item.quantity} × {item.label}
+                                </span>
+                                <span>
+                                  {Math.round(item.lengthMm)} ×{" "}
+                                  {Math.round(item.widthMm)} ×{" "}
+                                  {Math.round(item.thicknessMm)} mm
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+    
+                      <NumberField
+                        label="X"
+                        value={selectedObject.xMm}
+                        step={1}
+                        suffix="mm"
+                        disabled={selectedObject.locked}
+                        onCommit={(value) =>
+                          updateSelectedObject({ xMm: Math.round(value) })
+                        }
+                      />
+                      <NumberField
+                        label="Y"
+                        value={selectedObject.yMm}
+                        step={1}
+                        suffix="mm"
+                        disabled={selectedObject.locked}
+                        onCommit={(value) =>
+                          updateSelectedObject({ yMm: Math.round(value) })
+                        }
+                      />
+                      <NumberField
+                        label="Z"
+                        value={selectedObject.zMm}
+                        min={0}
+                        step={1}
+                        suffix="mm"
+                        disabled={selectedObject.locked}
+                        onCommit={(value) =>
+                          updateSelectedObject({ zMm: Math.round(value) })
+                        }
+                      />
+                      <LengthField
+                        label="Width"
+                        valueMm={selectedObject.widthMm}
+                        minMm={
+                          selectedObjectDefinition?.minimumDimensionsMm.widthMm ?? 1
+                        }
+                        disabled={selectedObjectDimensionsLocked}
+                        onCommit={(valueMm) =>
+                          updateSelectedObject({ widthMm: valueMm })
+                        }
+                      />
+                      <LengthField
+                        label="Depth"
+                        valueMm={selectedObject.depthMm}
+                        minMm={
+                          selectedObjectDefinition?.minimumDimensionsMm.depthMm ?? 1
+                        }
+                        disabled={selectedObjectDimensionsLocked}
+                        onCommit={(valueMm) =>
+                          updateSelectedObject({ depthMm: valueMm })
+                        }
+                      />
+                      <LengthField
+                        label="Height"
+                        valueMm={selectedObject.heightMm}
+                        minMm={
+                          selectedObjectDefinition?.minimumDimensionsMm.heightMm ?? 1
+                        }
+                        disabled={selectedObjectDimensionsLocked}
+                        onCommit={(valueMm) =>
+                          updateSelectedObject({ heightMm: valueMm })
+                        }
+                      />
+                      <NumberField
+                        label="Rotation"
+                        value={normalizeDegrees(selectedObject.rotationDeg)}
+                        step={1}
+                        suffix="°"
+                        disabled={selectedObject.locked}
+                        onCommit={(value) =>
+                          updateSelectedObject({
+                            rotationDeg: normalizeDegrees(value),
+                          })
+                        }
+                      />
+                      <div className="selection-actions">
+                        <Button
+                          variant="ghost"
+                          onClick={() =>
+                            updateSelectedObject({ locked: !selectedObject.locked })
+                          }
+                        >
+                          {selectedObject.locked ? "Unlock" : "Lock"}
+                        </Button>
+                        <Button variant="secondary" onClick={duplicateSelectedObject}>
+                          Duplicate
+                        </Button>
+                        <Button variant="ghost" onClick={removeSelectedObject}>
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+    
+                                <div className="tool-status" aria-live="polite">
+                    <strong>{toolTitle(viewMode, activeTool, wallDraft !== null)}</strong>
+                    <span>{toolHelp(viewMode, activeTool, wallDraft !== null)}</span>
+                  </div>
+                </div>
+              </Panel>
+  );
+
   return (
     <div className="app-shell">
       <header className="app-header">
         <div className="app-brand">
-          <strong>RoomCraft</strong>
-          <span>{document.name}</span>
+          <div className="mobile-only">
+            <IconButton icon="back" label="Back to projects" variant="ghost" onClick={onExit} />
+          </div>
+          <div className="app-brand__text">
+            <strong>RoomCraft</strong>
+            <span>{document.name}</span>
+          </div>
         </div>
 
-        <Toolbar>
-          <Button variant="ghost" onClick={undo} disabled={!session.canUndo}>
-            Undo
-          </Button>
-          <Button variant="ghost" onClick={redo} disabled={!session.canRedo}>
-            Redo
-          </Button>
+        <Toolbar className="desktop-header-actions">
+          <Button variant="ghost" onClick={undo} disabled={!session.canUndo}>Undo</Button>
+          <Button variant="ghost" onClick={redo} disabled={!session.canRedo}>Redo</Button>
           <Button
             variant="primary"
             onClick={() => void session.saveNow()}
@@ -1442,78 +2382,60 @@ export function App() {
           >
             {saveState === "saving" ? "Saving…" : "Save"}
           </Button>
-          <Button variant="ghost" onClick={exportNativeProject}>
-            Export project
-          </Button>
-          <Button variant="ghost" onClick={() => projectImportRef.current?.click()}>
-            Import project
-          </Button>
-          <input
-            ref={projectImportRef}
-            className="visually-hidden"
-            type="file"
-            accept=".roomcraft,application/json"
-            tabIndex={-1}
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0];
-              event.currentTarget.value = "";
-              if (file) void importNativeProject(file);
-            }}
-          />
-          <Button variant="ghost" onClick={exportSvgFloorPlan}>
-            Export SVG
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={rasterExportState === "exporting"}
-            onClick={() => void exportRasterFloorPlan("png")}
-          >
-            Export PNG
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={rasterExportState === "exporting"}
-            onClick={() => void exportRasterFloorPlan("jpeg")}
-          >
-            Export JPEG
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={glbExportState === "exporting"}
-            onClick={() => void exportGlbProject()}
-          >
+          <Button variant="ghost" onClick={exportNativeProject}>Export project</Button>
+          <Button variant="ghost" onClick={() => projectImportRef.current?.click()}>Import project</Button>
+          <Button variant="ghost" onClick={exportSvgFloorPlan}>Export SVG</Button>
+          <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("png")}>Export PNG</Button>
+          <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("jpeg")}>Export JPEG</Button>
+          <Button variant="ghost" disabled={glbExportState === "exporting"} onClick={() => void exportGlbProject()}>
             {glbExportState === "exporting" ? "Exporting GLB…" : "Export GLB"}
           </Button>
           <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
             {saveStateLabel(saveState)}
           </span>
-          <SegmentedControl
-            value={viewMode}
-            options={VIEW_OPTIONS}
-            onChange={changeView}
-            ariaLabel="Editor view"
-          />
+          <SegmentedControl value={viewMode} options={VIEW_OPTIONS} onChange={changeView} ariaLabel="Editor view" />
           {viewMode === "3d" ? (
-            <Button
-              variant={showCeilings ? "primary" : "ghost"}
-              onClick={() => setShowCeilings((current) => !current)}
-              title="Show or hide derived room ceilings"
-            >
-              Ceilings
-            </Button>
+            <Button variant={showCeilings ? "primary" : "ghost"} onClick={() => setShowCeilings((current) => !current)}>Ceilings</Button>
           ) : null}
           {viewMode === "3d" && document.levels.length > 1 ? (
-            <SegmentedControl
-              value={threeLevelScope}
-              options={THREE_LEVEL_OPTIONS}
-              onChange={setThreeLevelScope}
-              ariaLabel="3D level scope"
-            />
+            <SegmentedControl value={threeLevelScope} options={THREE_LEVEL_OPTIONS} onChange={setThreeLevelScope} ariaLabel="3D level scope" />
           ) : null}
         </Toolbar>
-      </header>
 
-      <main className="editor-layout">
+        <div className="mobile-header-actions mobile-only">
+          <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
+            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "•"}
+          </span>
+          <IconButton icon="undo" label="Undo" variant="ghost" onClick={undo} disabled={!session.canUndo} />
+          <IconButton icon="redo" label="Redo" variant="ghost" onClick={redo} disabled={!session.canRedo} />
+          <Menu label="Project and view actions">
+            <Button variant="ghost" onClick={() => changeView("2d")}>2D view</Button>
+            <Button variant="ghost" onClick={() => changeView("3d")}>3D view</Button>
+            <Button variant="ghost" onClick={() => setMobilePropertiesOpen(true)}>Properties</Button>
+            <Button variant="ghost" disabled={blueprintImportState === "uploading"} onClick={() => blueprintFileRef.current?.click()}>
+              <Icon name="blueprint" /> Blueprint
+            </Button>
+            <Button variant="ghost" onClick={exportNativeProject}>Export project</Button>
+            <Button variant="ghost" onClick={() => projectImportRef.current?.click()}>Import project</Button>
+            <Button variant="ghost" onClick={exportSvgFloorPlan}>Export SVG</Button>
+            <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("png")}>Export PNG</Button>
+            <Button variant="ghost" disabled={glbExportState === "exporting"} onClick={() => void exportGlbProject()}>Export GLB</Button>
+          </Menu>
+        </div>
+
+        <input
+          ref={projectImportRef}
+          className="visually-hidden"
+          type="file"
+          accept=".roomcraft,application/json"
+          tabIndex={-1}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file) void importNativeProject(file);
+          }}
+        />
+      </header>      <main className="editor-layout">
         <aside className="tool-rail" aria-label="Drawing tools">
           <Button
             variant={activeTool === "select" ? "primary" : "ghost"}
@@ -1619,930 +2541,44 @@ export function App() {
           )}
         </section>
 
-        <aside className="properties">
-          <Panel>
-            <div className="properties__content">
-              <div className="level-editor">
-                <span className="eyebrow">Level</span>
-                <select
-                  className="rc-input level-select"
-                  value={levelId}
-                  aria-label="Active level"
-                  onChange={(event) => changeActiveLevel(event.target.value)}
-                >
-                  {document.levels.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.name}
-                    </option>
-                  ))}
-                </select>
-                <label className="rc-field">
-                  <span className="rc-field__label">Name</span>
-                  <input
-                    key={`${level.id}:${level.name}`}
-                    className="rc-input"
-                    type="text"
-                    defaultValue={level.name}
-                    onBlur={(event) => {
-                      const name = event.currentTarget.value.trim();
-                      if (!name || name === level.name) return;
-                      updateActiveLevel({ name });
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") event.currentTarget.blur();
-                      if (event.key === "Escape") {
-                        event.currentTarget.value = level.name;
-                        event.currentTarget.blur();
-                      }
-                    }}
-                  />
-                </label>
-                <NumberField
-                  label="Elevation"
-                  value={level.elevationMm}
-                  step={1}
-                  suffix="mm"
-                  onCommit={(value) =>
-                    updateActiveLevel({ elevationMm: Math.round(value) })
-                  }
-                />
-                <NumberField
-                  label="Wall height"
-                  value={level.defaultWallHeightMm}
-                  min={100}
-                  step={1}
-                  suffix="mm"
-                  onCommit={(value) =>
-                    updateActiveLevel({ defaultWallHeightMm: Math.round(value) })
-                  }
-                />
-                <NumberField
-                  label="Floor thickness"
-                  value={level.floorThicknessMm}
-                  min={0}
-                  step={1}
-                  suffix="mm"
-                  onCommit={(value) =>
-                    updateActiveLevel({ floorThicknessMm: Math.round(value) })
-                  }
-                />
-                <div className="level-editor__actions">
-                  <Button variant="secondary" onClick={addLevel}>
-                    Add level
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={duplicateActiveLevelShell}
-                    title="Copy walls, vertices and openings into a new level"
-                  >
-                    Duplicate shell
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={document.levels.length <= 1}
-                    onClick={removeActiveLevel}
-                  >
-                    Delete level
-                  </Button>
-                </div>
-                <SegmentedControl
-                  value={effectiveGhostMode}
-                  options={ghostOptions}
-                  onChange={setGhostMode}
-                  ariaLabel="Reference level overlay"
-                />
-              </div>
-
-              <dl className="stats">
-                <div>
-                  <dt>Walls</dt>
-                  <dd>{level.walls.length}</dd>
-                </div>
-                <div>
-                  <dt>Openings</dt>
-                  <dd>{level.openings.length}</dd>
-                </div>
-                <div>
-                  <dt>Rooms</dt>
-                  <dd>{projection.rooms.length}</dd>
-                </div>
-                <div>
-                  <dt>Topology</dt>
-                  <dd>{projection.topologyIssues.length === 0 ? "OK" : `${projection.topologyIssues.length} issue(s)`}</dd>
-                </div>
-                <div>
-                  <dt>Levels</dt>
-                  <dd>{document.levels.length}</dd>
-                </div>
-                <div>
-                  <dt>Grid</dt>
-                  <dd>{document.settings.gridSizeMm} mm</dd>
-                </div>
-                <div>
-                  <dt>Revision</dt>
-                  <dd>{revision ?? "—"}</dd>
-                </div>
-              </dl>
-
-              {activeTool === "furniture" ? (
-                <div className="furniture-palette">
-                  <span className="eyebrow">Furniture</span>
-
-                  <div className="furniture-palette__section">
-                    <strong className="furniture-palette__section-title">
-                      Quick shapes
-                    </strong>
-                    <div className="furniture-palette__grid">
-                      {BUILTIN_FURNITURE.map((asset) => (
-                        <Button
-                          key={asset.id}
-                          type="button"
-                          variant={
-                            asset.id === activeFurnitureAssetId
-                              ? "primary"
-                              : "secondary"
-                          }
-                          onClick={() => setActiveFurnitureAssetId(asset.id)}
-                        >
-                          {asset.name}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="furniture-palette__section">
-                    <strong className="furniture-palette__section-title">
-                      Custom furniture
-                    </strong>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={createParametricCabinet}
-                    >
-                      New cabinet
-                    </Button>
-                    {document.parametricAssets.length > 0 ? (
-                      <div className="furniture-palette__grid">
-                        {document.parametricAssets.map((definition) => {
-                          const assetId = parametricAssetId(definition.id);
-                          return (
-                            <Button
-                              key={definition.id}
-                              type="button"
-                              variant={
-                                assetId === activeFurnitureAssetId
-                                  ? "primary"
-                                  : "secondary"
-                              }
-                              onClick={() => setActiveFurnitureAssetId(assetId)}
-                            >
-                              {definition.name}
-                            </Button>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                    <span className="property-hint">
-                      Cabinets stay parametric: resize the placed object and
-                      change shelves, fronts and construction later.
-                    </span>
-                  </div>
-
-                  <div className="furniture-palette__section">
-                    <strong className="furniture-palette__section-title">
-                      My 3D models
-                    </strong>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={modelImportState === "importing"}
-                      onClick={() => modelFileRef.current?.click()}
-                    >
-                      {modelImportState === "importing" ? "Importing…" : "Import GLB"}
-                    </Button>
-                    <input
-                      ref={modelFileRef}
-                      className="visually-hidden"
-                      type="file"
-                      accept=".glb,model/gltf-binary"
-                      tabIndex={-1}
-                      onChange={(event) => {
-                        const file = event.currentTarget.files?.[0];
-                        event.currentTarget.value = "";
-                        if (file) void importGlbFurniture(file);
-                      }}
-                    />
-                    {modelImportError ? (
-                      <div className="inline-error" role="alert">
-                        {modelImportError}
-                      </div>
-                    ) : null}
-                    <span className="property-hint">
-                      glTF 2.0 binary models are measured in metres, centered and
-                      placed on the floor automatically.
-                    </span>
-                  </div>
-
-                  <form
-                    className="catalog-search"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void runCatalogSearch();
-                    }}
-                  >
-                    <TextField
-                      label="Catalog search"
-                      value={catalogQuery}
-                      onChange={setCatalogQuery}
-                      placeholder="Name, manufacturer or SKU"
-                      inputMode="search"
-                    />
-                    <Button
-                      type="submit"
-                      variant="secondary"
-                      disabled={catalogSearchState === "loading"}
-                    >
-                      {catalogSearchState === "loading"
-                        ? "Searching…"
-                        : "Search"}
-                    </Button>
-                  </form>
-
-                  {catalogSearchError ? (
-                    <div className="inline-error" role="alert">
-                      {catalogSearchError}
-                    </div>
-                  ) : null}
-
-                  {catalogSearchState === "ready" ? (
-                    <span className="property-hint">
-                      {catalogResultTotal} catalog item
-                      {catalogResultTotal === 1 ? "" : "s"}
-                    </span>
-                  ) : null}
-
-                  <div className="catalog-results" role="list">
-                    {catalogResults.map((asset) => (
-                      <Button
-                        key={asset.id}
-                        type="button"
-                        className="catalog-card"
-                        variant={
-                          asset.id === activeFurnitureAssetId
-                            ? "primary"
-                            : "secondary"
-                        }
-                        onClick={() => setActiveFurnitureAssetId(asset.id)}
-                      >
-                        {asset.thumbnailAssetId ? (
-                          <img
-                            className="catalog-card__thumbnail"
-                            src={assetContentUrl(asset.thumbnailAssetId)}
-                            alt=""
-                          />
-                        ) : (
-                          <span
-                            className="catalog-card__placeholder"
-                            aria-hidden="true"
-                          >
-                            □
-                          </span>
-                        )}
-                        <span className="catalog-card__body">
-                          <strong>{asset.name}</strong>
-                          <span>
-                            {asset.manufacturer ?? asset.category}
-                            {asset.sku ? ` · ${asset.sku}` : ""}
-                          </span>
-                          <span>
-                            {asset.defaultDimensionsMm.widthMm} ×{" "}
-                            {asset.defaultDimensionsMm.depthMm} ×{" "}
-                            {asset.defaultDimensionsMm.heightMm} mm
-                          </span>
-                        </span>
-                      </Button>
-                    ))}
-                  </div>
-
-                  <span className="property-hint">
-                    Catalog products are placed with their current immutable
-                    version and exact dimensions.
-                  </span>
-                </div>
-              ) : null}
-
-                            {projectFileError ? (
-                <div className="inline-error" role="alert">
-                  {projectFileError}
-                </div>
-              ) : null}
-
-              {glbExportError ? (
-                <div className="inline-error" role="alert">
-                  {glbExportError}
-                </div>
-              ) : null}
-
-              {rasterExportError ? (
-                <div className="inline-error" role="alert">
-                  {rasterExportError}
-                </div>
-              ) : null}
-
-              {blueprintImportError ? (
-                <div className="inline-error" role="alert">
-                  {blueprintImportError}
-                </div>
-              ) : null}
-
-              <div className="blueprint-layers">
-                <span className="eyebrow">Blueprint layers</span>
-                <LayerList
-                  emptyLabel="No blueprints on this level"
-                  items={[...level.blueprints]
-                    .map((blueprint, index) => ({
-                      id: blueprint.id,
-                      label: `Blueprint ${index + 1}`,
-                      selected: blueprint.id === selectedBlueprintId,
-                      visible: blueprint.visible,
-                      locked: blueprint.locked,
-                      canMoveUp: index < level.blueprints.length - 1,
-                      canMoveDown: index > 0,
-                    }))
-                    .reverse()}
-                  onSelect={selectBlueprint}
-                  onToggleVisible={(blueprintId) => {
-                    const blueprint = level.blueprints.find(
-                      (candidate) => candidate.id === blueprintId,
-                    );
-                    if (blueprint) {
-                      updateBlueprint(blueprintId, { visible: !blueprint.visible });
-                    }
-                  }}
-                  onToggleLocked={(blueprintId) => {
-                    const blueprint = level.blueprints.find(
-                      (candidate) => candidate.id === blueprintId,
-                    );
-                    if (blueprint) {
-                      updateBlueprint(blueprintId, { locked: !blueprint.locked });
-                    }
-                  }}
-                  onMoveUp={(blueprintId) => moveBlueprintLayer(blueprintId, 1)}
-                  onMoveDown={(blueprintId) => moveBlueprintLayer(blueprintId, -1)}
-                  onDelete={removeBlueprint}
-                />
-              </div>
-
-              {selectedWall ? (
-                <div className="selection-properties">
-                  <span className="eyebrow">Selected wall</span>
-                  <LengthField
-                    label="Length"
-                    valueMm={Math.round(selectedWall.lengthMm)}
-                    minMm={100}
-                    helpText="The start vertex stays fixed; connected walls at the moved endpoint follow it."
-                    onCommit={setSelectedWallLength}
-                  />
-                  <SelectField
-                    label="Left surface"
-                    value={selectedWall.leftMaterialId ?? ""}
-                    options={materialOptions}
-                    helpText="Left side when looking from the wall start toward its end."
-                    onChange={(value) => setSelectedWallMaterial("left", value)}
-                  />
-                  <SelectField
-                    label="Right surface"
-                    value={selectedWall.rightMaterialId ?? ""}
-                    options={materialOptions}
-                    onChange={(value) => setSelectedWallMaterial("right", value)}
-                  />
-                </div>
-              ) : null}
-
-              {selectedRoom ? (
-                <div className="selection-properties">
-                  <span className="eyebrow">Selected room</span>
-                  <strong>{formatAreaSquareMetres(selectedRoom.areaMm2)} m²</strong>
-                  <SelectField
-                    label="Floor"
-                    value={selectedRoom.floorMaterialId ?? ""}
-                    options={materialOptions}
-                    onChange={(value) => setSelectedRoomMaterial("floor", value)}
-                  />
-                  <SelectField
-                    label="Ceiling"
-                    value={selectedRoom.ceilingMaterialId ?? ""}
-                    options={materialOptions}
-                    helpText="Enable Ceilings in 3D to preview the ceiling surface."
-                    onChange={(value) => setSelectedRoomMaterial("ceiling", value)}
-                  />
-                </div>
-              ) : null}
-
-              {selectedBlueprint ? (
-                <div className="selection-properties">
-                  <span className="eyebrow">Selected blueprint</span>
-                  <dl className="stats">
-                    <div>
-                      <dt>Image</dt>
-                      <dd>{selectedBlueprint.sourceWidthPx} × {selectedBlueprint.sourceHeightPx}px</dd>
-                    </div>
-                    <div>
-                      <dt>Scale</dt>
-                      <dd>{selectedBlueprint.millimetresPerPixel.toFixed(3)} mm/px</dd>
-                    </div>
-                  </dl>
-                  <NumberField
-                    label="X"
-                    value={selectedBlueprint.originXmm}
-                    step={1}
-                    suffix="mm"
-                    disabled={selectedBlueprint.locked}
-                    onCommit={(value) =>
-                      updateSelectedBlueprint({ originXmm: Math.round(value) })
-                    }
-                  />
-                  <NumberField
-                    label="Y"
-                    value={selectedBlueprint.originYmm}
-                    step={1}
-                    suffix="mm"
-                    disabled={selectedBlueprint.locked}
-                    onCommit={(value) =>
-                      updateSelectedBlueprint({ originYmm: Math.round(value) })
-                    }
-                  />
-                  <NumberField
-                    label="Rotation"
-                    value={normalizeDegrees(selectedBlueprint.rotationDeg)}
-                    step={0.1}
-                    suffix="°"
-                    disabled={selectedBlueprint.locked}
-                    onCommit={(value) =>
-                      updateSelectedBlueprint({ rotationDeg: normalizeDegrees(value) })
-                    }
-                  />
-                  <NumberField
-                    label="Opacity"
-                    value={selectedBlueprint.opacity * 100}
-                    min={0}
-                    max={100}
-                    step={1}
-                    suffix="%"
-                    onCommit={(value) =>
-                      updateSelectedBlueprint({ opacity: value / 100 })
-                    }
-                  />
-                  <div className="blueprint-crop-fields">
-                    <NumberField
-                      label="Crop left"
-                      value={selectedBlueprint.crop.leftPx}
-                      min={0}
-                      max={
-                        selectedBlueprint.crop.leftPx +
-                        selectedBlueprint.crop.widthPx -
-                        1
-                      }
-                      step={1}
-                      suffix="px"
-                      disabled={selectedBlueprint.locked}
-                      onCommit={(value) => {
-                        const rightEdge =
-                          selectedBlueprint.crop.leftPx +
-                          selectedBlueprint.crop.widthPx;
-                        const leftPx = Math.round(value);
-                        updateSelectedBlueprint({
-                          crop: {
-                            ...selectedBlueprint.crop,
-                            leftPx,
-                            widthPx: rightEdge - leftPx,
-                          },
-                        });
-                      }}
-                    />
-                    <NumberField
-                      label="Crop top"
-                      value={selectedBlueprint.crop.topPx}
-                      min={0}
-                      max={
-                        selectedBlueprint.crop.topPx +
-                        selectedBlueprint.crop.heightPx -
-                        1
-                      }
-                      step={1}
-                      suffix="px"
-                      disabled={selectedBlueprint.locked}
-                      onCommit={(value) => {
-                        const bottomEdge =
-                          selectedBlueprint.crop.topPx +
-                          selectedBlueprint.crop.heightPx;
-                        const topPx = Math.round(value);
-                        updateSelectedBlueprint({
-                          crop: {
-                            ...selectedBlueprint.crop,
-                            topPx,
-                            heightPx: bottomEdge - topPx,
-                          },
-                        });
-                      }}
-                    />
-                    <NumberField
-                      label="Crop right"
-                      value={
-                        selectedBlueprint.sourceWidthPx -
-                        selectedBlueprint.crop.leftPx -
-                        selectedBlueprint.crop.widthPx
-                      }
-                      min={0}
-                      max={
-                        selectedBlueprint.sourceWidthPx -
-                        selectedBlueprint.crop.leftPx -
-                        1
-                      }
-                      step={1}
-                      suffix="px"
-                      disabled={selectedBlueprint.locked}
-                      onCommit={(value) => {
-                        const rightPx = Math.round(value);
-                        updateSelectedBlueprint({
-                          crop: {
-                            ...selectedBlueprint.crop,
-                            widthPx:
-                              selectedBlueprint.sourceWidthPx -
-                              selectedBlueprint.crop.leftPx -
-                              rightPx,
-                          },
-                        });
-                      }}
-                    />
-                    <NumberField
-                      label="Crop bottom"
-                      value={
-                        selectedBlueprint.sourceHeightPx -
-                        selectedBlueprint.crop.topPx -
-                        selectedBlueprint.crop.heightPx
-                      }
-                      min={0}
-                      max={
-                        selectedBlueprint.sourceHeightPx -
-                        selectedBlueprint.crop.topPx -
-                        1
-                      }
-                      step={1}
-                      suffix="px"
-                      disabled={selectedBlueprint.locked}
-                      onCommit={(value) => {
-                        const bottomPx = Math.round(value);
-                        updateSelectedBlueprint({
-                          crop: {
-                            ...selectedBlueprint.crop,
-                            heightPx:
-                              selectedBlueprint.sourceHeightPx -
-                              selectedBlueprint.crop.topPx -
-                              bottomPx,
-                          },
-                        });
-                      }}
-                    />
-                  </div>
-                  <Button
-                    variant="ghost"
-                    disabled={selectedBlueprint.locked}
-                    onClick={() =>
-                      updateSelectedBlueprint({
-                        crop: {
-                          leftPx: 0,
-                          topPx: 0,
-                          widthPx: selectedBlueprint.sourceWidthPx,
-                          heightPx: selectedBlueprint.sourceHeightPx,
-                        },
-                      })
-                    }
-                  >
-                    Reset crop
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={selectedBlueprint.locked}
-                    onClick={startBlueprintCalibration}
-                  >
-                    Calibrate scale
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => updateSelectedBlueprint({ visible: !selectedBlueprint.visible })}
-                  >
-                    {selectedBlueprint.visible ? "Hide blueprint" : "Show blueprint"}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => updateSelectedBlueprint({ locked: !selectedBlueprint.locked })}
-                  >
-                    {selectedBlueprint.locked ? "Unlock blueprint" : "Lock blueprint"}
-                  </Button>
-                  {calibrationDraft?.blueprintId === selectedBlueprint.id &&
-                  calibrationDraft.firstPoint &&
-                  calibrationDraft.secondPoint ? (
-                    <LengthField
-                      label="Known distance"
-                      valueMm={Math.max(
-                        1,
-                        Math.round(
-                          Math.hypot(
-                            calibrationDraft.secondPoint.xMm - calibrationDraft.firstPoint.xMm,
-                            calibrationDraft.secondPoint.yMm - calibrationDraft.firstPoint.yMm,
-                          ),
-                        ),
-                      )}
-                      minMm={1}
-                      helpText="Enter the real distance between the two points."
-                      onCommit={commitBlueprintCalibration}
-                    />
-                  ) : null}
-                </div>
-              ) : null}
-
-              {selectedObject ? (
-                <div className="selection-properties">
-                  <span className="eyebrow">
-                    Selected {selectedObjectDefinition?.name ?? "object"}
-                  </span>
-                  {selectedObjectDefinition?.source === "catalog" ? (
-                    <>
-                      <dl className="stats stats--compact">
-                        <div>
-                          <dt>Source</dt>
-                          <dd>Catalog</dd>
-                        </div>
-                        <div>
-                          <dt>Manufacturer</dt>
-                          <dd>{selectedObjectDefinition.manufacturer ?? "—"}</dd>
-                        </div>
-                        <div>
-                          <dt>SKU</dt>
-                          <dd>{selectedObjectDefinition.sku ?? "—"}</dd>
-                        </div>
-                      </dl>
-                      {selectedObjectDefinition.productUrl ? (
-                        <a
-                          className="product-link"
-                          href={selectedObjectDefinition.productUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open product page
-                        </a>
-                      ) : null}
-                    </>
-                  ) : selectedObjectIsCatalog ? (
-                    <span className="property-hint">
-                      Loading the saved catalog version…
-                    </span>
-                  ) : null}
-
-                  {selectedParametricDefinition ? (
-                    <div className="cabinet-builder">
-                      <strong>Cabinet construction</strong>
-                      <SelectField
-                        label="Front"
-                        value={selectedParametricDefinition.frontStyle}
-                        options={[
-                          { value: "open", label: "Open" },
-                          { value: "single-door", label: "Single door" },
-                          { value: "double-door", label: "Double door" },
-                        ]}
-                        disabled={selectedObject.locked}
-                        onChange={(value) =>
-                          updateSelectedParametricDefinition({
-                            frontStyle: value as ParametricCabinetDefinition["frontStyle"],
-                          })
-                        }
-                      />
-                      <SelectField
-                        label="Material"
-                        value={selectedParametricDefinition.materialId ?? ""}
-                        options={materialOptions}
-                        disabled={selectedObject.locked}
-                        onChange={(value) =>
-                          updateSelectedParametricDefinition({
-                            materialId: value || null,
-                          })
-                        }
-                      />
-                      <LengthField
-                        label="Panel thickness"
-                        valueMm={selectedParametricDefinition.panelThicknessMm}
-                        minMm={1}
-                        disabled={selectedObject.locked}
-                        onCommit={(valueMm) =>
-                          updateSelectedParametricDefinition({
-                            panelThicknessMm: valueMm,
-                          })
-                        }
-                      />
-                      <LengthField
-                        label="Back thickness"
-                        valueMm={selectedParametricDefinition.backThicknessMm}
-                        minMm={1}
-                        disabled={selectedObject.locked}
-                        onCommit={(valueMm) =>
-                          updateSelectedParametricDefinition({
-                            backThicknessMm: valueMm,
-                          })
-                        }
-                      />
-                      <LengthField
-                        label="Shelf thickness"
-                        valueMm={selectedParametricDefinition.shelfThicknessMm}
-                        minMm={1}
-                        disabled={selectedObject.locked}
-                        onCommit={(valueMm) =>
-                          updateSelectedParametricDefinition({
-                            shelfThicknessMm: valueMm,
-                          })
-                        }
-                      />
-                      <NumberField
-                        label="Shelves"
-                        value={selectedParametricDefinition.shelfCount}
-                        min={0}
-                        step={1}
-                        disabled={selectedObject.locked}
-                        onCommit={(value) =>
-                          updateSelectedParametricDefinition({
-                            shelfCount: Math.max(
-                              0,
-                              Math.min(64, Math.round(value)),
-                            ),
-                          })
-                        }
-                      />
-                      <LengthField
-                        label="Front thickness"
-                        valueMm={selectedParametricDefinition.frontThicknessMm}
-                        minMm={1}
-                        disabled={selectedObject.locked}
-                        onCommit={(valueMm) =>
-                          updateSelectedParametricDefinition({
-                            frontThicknessMm: valueMm,
-                          })
-                        }
-                      />
-                      <NumberField
-                        label="Plinth height"
-                        value={selectedParametricDefinition.plinthHeightMm}
-                        min={0}
-                        step={1}
-                        suffix="mm"
-                        disabled={selectedObject.locked}
-                        onCommit={(value) =>
-                          updateSelectedParametricDefinition({
-                            plinthHeightMm: Math.max(0, Math.round(value)),
-                          })
-                        }
-                      />
-                      <NumberField
-                        label="Worktop thickness"
-                        value={selectedParametricDefinition.worktopThicknessMm}
-                        min={0}
-                        step={1}
-                        suffix="mm"
-                        disabled={selectedObject.locked}
-                        onCommit={(value) =>
-                          updateSelectedParametricDefinition({
-                            worktopThicknessMm: Math.max(0, Math.round(value)),
-                          })
-                        }
-                      />
-                      {parametricEditError ? (
-                        <div className="inline-error" role="alert">
-                          {parametricEditError}
-                        </div>
-                      ) : null}
-                      <div className="cabinet-cut-list">
-                        <strong>Cut list</strong>
-                        {selectedCabinetCutList.map((item, index) => (
-                          <div
-                            className="cabinet-cut-list__row"
-                            key={`${item.label}:${item.lengthMm}:${item.widthMm}:${item.thicknessMm}:${index}`}
-                          >
-                            <span>
-                              {item.quantity} × {item.label}
-                            </span>
-                            <span>
-                              {Math.round(item.lengthMm)} ×{" "}
-                              {Math.round(item.widthMm)} ×{" "}
-                              {Math.round(item.thicknessMm)} mm
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <NumberField
-                    label="X"
-                    value={selectedObject.xMm}
-                    step={1}
-                    suffix="mm"
-                    disabled={selectedObject.locked}
-                    onCommit={(value) =>
-                      updateSelectedObject({ xMm: Math.round(value) })
-                    }
-                  />
-                  <NumberField
-                    label="Y"
-                    value={selectedObject.yMm}
-                    step={1}
-                    suffix="mm"
-                    disabled={selectedObject.locked}
-                    onCommit={(value) =>
-                      updateSelectedObject({ yMm: Math.round(value) })
-                    }
-                  />
-                  <NumberField
-                    label="Z"
-                    value={selectedObject.zMm}
-                    min={0}
-                    step={1}
-                    suffix="mm"
-                    disabled={selectedObject.locked}
-                    onCommit={(value) =>
-                      updateSelectedObject({ zMm: Math.round(value) })
-                    }
-                  />
-                  <LengthField
-                    label="Width"
-                    valueMm={selectedObject.widthMm}
-                    minMm={
-                      selectedObjectDefinition?.minimumDimensionsMm.widthMm ?? 1
-                    }
-                    disabled={selectedObjectDimensionsLocked}
-                    onCommit={(valueMm) =>
-                      updateSelectedObject({ widthMm: valueMm })
-                    }
-                  />
-                  <LengthField
-                    label="Depth"
-                    valueMm={selectedObject.depthMm}
-                    minMm={
-                      selectedObjectDefinition?.minimumDimensionsMm.depthMm ?? 1
-                    }
-                    disabled={selectedObjectDimensionsLocked}
-                    onCommit={(valueMm) =>
-                      updateSelectedObject({ depthMm: valueMm })
-                    }
-                  />
-                  <LengthField
-                    label="Height"
-                    valueMm={selectedObject.heightMm}
-                    minMm={
-                      selectedObjectDefinition?.minimumDimensionsMm.heightMm ?? 1
-                    }
-                    disabled={selectedObjectDimensionsLocked}
-                    onCommit={(valueMm) =>
-                      updateSelectedObject({ heightMm: valueMm })
-                    }
-                  />
-                  <NumberField
-                    label="Rotation"
-                    value={normalizeDegrees(selectedObject.rotationDeg)}
-                    step={1}
-                    suffix="°"
-                    disabled={selectedObject.locked}
-                    onCommit={(value) =>
-                      updateSelectedObject({
-                        rotationDeg: normalizeDegrees(value),
-                      })
-                    }
-                  />
-                  <div className="selection-actions">
-                    <Button
-                      variant="ghost"
-                      onClick={() =>
-                        updateSelectedObject({ locked: !selectedObject.locked })
-                      }
-                    >
-                      {selectedObject.locked ? "Unlock" : "Lock"}
-                    </Button>
-                    <Button variant="secondary" onClick={duplicateSelectedObject}>
-                      Duplicate
-                    </Button>
-                    <Button variant="ghost" onClick={removeSelectedObject}>
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-                            <div className="tool-status" aria-live="polite">
-                <strong>{toolTitle(viewMode, activeTool, wallDraft !== null)}</strong>
-                <span>{toolHelp(viewMode, activeTool, wallDraft !== null)}</span>
-              </div>
-            </div>
-          </Panel>
-        </aside>
+        {isMobile ? (
+          <Sheet
+            open={mobilePropertiesOpen}
+            title="Properties"
+            className="editor-properties-sheet"
+            onClose={() => setMobilePropertiesOpen(false)}
+          >
+            {propertiesPanel}
+          </Sheet>
+        ) : (
+          <aside className="properties">{propertiesPanel}</aside>
+        )}
       </main>
+
+      <nav className="mobile-tool-bar mobile-only" aria-label="Editor tools">
+        <button type="button" className={activeTool === "select" ? "mobile-tool mobile-tool--active" : "mobile-tool"} onClick={() => selectTool("select")}>
+          <Icon name="select" /><span>Select</span>
+        </button>
+        <button type="button" className={activeTool === "wall" ? "mobile-tool mobile-tool--active" : "mobile-tool"} onClick={() => selectTool("wall")}>
+          <Icon name="wall" /><span>Wall</span>
+        </button>
+        <button type="button" className={activeTool === "door" ? "mobile-tool mobile-tool--active" : "mobile-tool"} onClick={() => selectTool("door")}>
+          <Icon name="opening" /><span>Door</span>
+        </button>
+        <button type="button" className={activeTool === "window" ? "mobile-tool mobile-tool--active" : "mobile-tool"} onClick={() => selectTool("window")}>
+          <Icon name="opening" /><span>Window</span>
+        </button>
+        <button
+          type="button"
+          className={activeTool === "furniture" ? "mobile-tool mobile-tool--active" : "mobile-tool"}
+          onClick={() => {
+            openFurnitureTool();
+            setMobilePropertiesOpen(true);
+          }}
+        >
+          <Icon name="furniture" /><span>Furniture</span>
+        </button>
+      </nav>
     </div>
   );
 }
@@ -2619,6 +2655,20 @@ function PlanCanvas({
     pointerId: number;
     lastClientX: number;
     lastClientY: number;
+  } | null>(null);
+  const touchPointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{
+    distance: number;
+    midpointX: number;
+    midpointY: number;
+  } | null>(null);
+  const multiTouchRef = useRef(false);
+  const suppressedTouchPointersRef = useRef(new Set<number>());
+  const touchToolTapRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    point: PlanPoint;
   } | null>(null);
   const itemDragRef = useRef<{
     pointerId: number;
@@ -2704,6 +2754,7 @@ function PlanCanvas({
     },
   ) {
     if (activeTool !== "select" || event.button !== 0) return;
+    if (event.pointerType === "touch" && multiTouchRef.current) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -2797,6 +2848,91 @@ function PlanCanvas({
     setItemDragPreview(null);
   }
 
+  function beginTouchGesture(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.pointerType !== "touch") return;
+
+    touchPointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    if (touchPointersRef.current.size < 2) return;
+
+    multiTouchRef.current = true;
+    for (const pointerId of touchPointersRef.current.keys()) {
+      suppressedTouchPointersRef.current.add(pointerId);
+    }
+
+    cancelPlanItemDrag(event);
+
+    const pan = panRef.current;
+    if (pan && event.currentTarget.hasPointerCapture(pan.pointerId)) {
+      event.currentTarget.releasePointerCapture(pan.pointerId);
+    }
+    panRef.current = null;
+
+    const points = [...touchPointersRef.current.values()];
+    const first = points[0];
+    const second = points[1];
+    if (!first || !second) return;
+
+    pinchRef.current = {
+      distance: Math.hypot(second.x - first.x, second.y - first.y),
+      midpointX: (first.x + second.x) / 2,
+      midpointY: (first.y + second.y) / 2,
+    };
+  }
+
+  function updateTouchGesture(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    if (event.pointerType !== "touch" || !touchPointersRef.current.has(event.pointerId)) {
+      return false;
+    }
+
+    touchPointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    if (touchPointersRef.current.size < 2) {
+      return suppressedTouchPointersRef.current.has(event.pointerId);
+    }
+
+    event.preventDefault();
+    const points = [...touchPointersRef.current.values()];
+    const first = points[0];
+    const second = points[1];
+    if (!first || !second) return true;
+
+    const next = {
+      distance: Math.hypot(second.x - first.x, second.y - first.y),
+      midpointX: (first.x + second.x) / 2,
+      midpointY: (first.y + second.y) / 2,
+    };
+    const previous = pinchRef.current;
+    pinchRef.current = next;
+    if (!previous || previous.distance <= 0 || next.distance <= 0) return true;
+
+    const anchor = clientToPlan(event.currentTarget, next.midpointX, next.midpointY);
+    const zoomScale = Math.max(0.5, Math.min(2, previous.distance / next.distance));
+    const xPx = next.midpointX - previous.midpointX;
+    const yPx = next.midpointY - previous.midpointY;
+
+    setCamera((current) => {
+      const panned = panPlanCamera(current, { xPx, yPx });
+      return anchor ? zoomPlanCameraAt(panned, anchor, zoomScale) : panned;
+    });
+    return true;
+  }
+
+  function endTouchGesture(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.pointerType !== "touch") return;
+    touchPointersRef.current.delete(event.pointerId);
+    if (touchPointersRef.current.size < 2) {
+      pinchRef.current = null;
+      multiTouchRef.current = false;
+    }
+  }
+
   function fitPlan() {
     const points = [
       ...walls.flatMap((wall) => [
@@ -2833,7 +2969,24 @@ function PlanCanvas({
           const scale = Math.exp(boundedDelta * 0.0018);
           setCamera((current) => zoomPlanCameraAt(current, anchor, scale));
         }}
+        onPointerDownCapture={beginTouchGesture}
+        onPointerMoveCapture={(event) => {
+          updateTouchGesture(event);
+        }}
+        onPointerUpCapture={endTouchGesture}
+        onPointerCancelCapture={endTouchGesture}
         onPointerMove={(event) => {
+          const pendingTap = touchToolTapRef.current;
+          if (
+            pendingTap?.pointerId === event.pointerId &&
+            Math.hypot(
+              event.clientX - pendingTap.startClientX,
+              event.clientY - pendingTap.startClientY,
+            ) > 8
+          ) {
+            touchToolTapRef.current = null;
+          }
+          if (updateTouchGesture(event)) return;
           if (updatePlanItemDrag(event)) return;
 
           const pan = panRef.current;
@@ -2850,6 +3003,7 @@ function PlanCanvas({
           if (point) onPointerPosition(point);
         }}
         onPointerDown={(event) => {
+          if (event.pointerType === "touch" && multiTouchRef.current) return;
           const shouldPan =
             event.button === 1 || (activeTool === "select" && event.button === 0);
           if (shouldPan) {
@@ -2864,13 +3018,42 @@ function PlanCanvas({
 
           const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
           if (!point) return;
+
+          if (event.pointerType === "touch") {
+            touchToolTapRef.current = {
+              pointerId: event.pointerId,
+              startClientX: event.clientX,
+              startClientY: event.clientY,
+              point,
+            };
+            return;
+          }
+
           onPoint(point);
         }}
         onPointerUp={(event) => {
+          if (suppressedTouchPointersRef.current.delete(event.pointerId)) {
+            if (touchToolTapRef.current?.pointerId === event.pointerId) {
+              touchToolTapRef.current = null;
+            }
+            return;
+          }
+
+          const pendingTap = touchToolTapRef.current;
+          if (pendingTap?.pointerId === event.pointerId) {
+            touchToolTapRef.current = null;
+            onPoint(pendingTap.point);
+            return;
+          }
+
           if (finishPlanItemDrag(event)) return;
           endPan(event);
         }}
         onPointerCancel={(event) => {
+          suppressedTouchPointersRef.current.delete(event.pointerId);
+          if (touchToolTapRef.current?.pointerId === event.pointerId) {
+            touchToolTapRef.current = null;
+          }
           cancelPlanItemDrag(event);
           endPan(event);
         }}
@@ -3457,6 +3640,21 @@ function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean)
   if (activeTool === "door") return "Click near a wall to place a 900 × 2100 mm door.";
   if (activeTool === "window") return "Click near a wall to place a 1200 × 1200 mm window with a 900 mm sill.";
   return "Choose Select, Wall, Door or Window, or import a Blueprint.";
+}
+
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+
+  return matches;
 }
 
 function formatAreaSquareMetres(areaMm2: number): string {

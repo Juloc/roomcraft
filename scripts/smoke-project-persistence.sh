@@ -37,6 +37,14 @@ if ! curl --fail --silent "$API_URL/api/health" >/dev/null; then
   exit 1
 fi
 
+COOKIE_JAR="${RUNNER_TEMP:-/tmp}/roomcraft-auth-${BASHPID}.txt"
+# shellcheck source=scripts/smoke-auth.sh
+source scripts/smoke-auth.sh
+roomcraft_authenticate "$API_URL" "$COOKIE_JAR"
+curl() {
+  command curl --cookie "$COOKIE_JAR" "$@"
+}
+
 project_document() {
   local name="$1"
   cat <<JSON

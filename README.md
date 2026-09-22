@@ -69,12 +69,14 @@ dotnet build RoomCraft.slnx
 
 The release image is a single deployable container. It contains the ASP.NET Core host, the built web frontend and an internal PostgreSQL 18 server. PostgreSQL only listens on the container loopback interface.
 
-Persist `/data`. It contains both the PostgreSQL data directory and uploaded RoomCraft assets.
+Persist `/data`. It contains the PostgreSQL data directory, RoomCraft users/projects and uploaded assets.
+
+On the first browser visit, RoomCraft asks you to create the first local administrator. Open registration is disabled; later visits use the normal sign-in screen. Existing projects created before authentication can be explicitly attached to the signed-in account from the project home screen.
 
 ```yaml
 services:
   roomcraft:
-    image: ghcr.io/juloc/roomcraft:0.1.0-alpha.1
+    image: ghcr.io/juloc/roomcraft:0.1.0-alpha.4
     volumes:
       - roomcraft_data:/data
     ports:
@@ -92,15 +94,20 @@ networks:
 
 ## Current implementation
 
-The initial vertical slice contains:
+The current alpha includes:
 
-- versioned V1 project document and validation
-- shared geometry primitives and tolerances
-- command-only document mutation with undo/redo
-- 2D projection package
-- shared UI design tokens/components
-- responsive browser editor shell
-- command-driven 4 × 3 m sample room
-- ASP.NET Core host and CI quality gates
+- versioned semantic project documents with PostgreSQL revision persistence
+- authenticated self-hosted users with first-run administrator setup
+- per-user project ownership, project home and explicit legacy-project adoption
+- command-only document mutation with undo/redo and autosave
+- interactive wall, door/window, room, blueprint and furniture editing
+- multi-level plans with reference ghosts
+- synchronized 2D/3D rendering with GLB model support
+- catalog-backed and parametric furniture
+- SVG, PNG/JPEG, native RoomCraft and project GLB export
+- desktop editor with tool rail + inspector
+- phone-first `100dvh` editor with compact header, fixed bottom tools, shared bottom-sheet inspector, one-finger actions and two-finger pan/pinch zoom
+- persistent single-container deployment with internal PostgreSQL 18
+- frontend/backend/container quality gates
 
-Interactive wall drawing, persistence, real 3D projection, catalog and exports follow as separate feature slices without bypassing these boundaries.
+See [`docs/MOBILE_UX_AUTH.md`](docs/MOBILE_UX_AUTH.md) for the mobile and identity architecture.

@@ -1,8 +1,10 @@
 using RoomCraft.Modules.Assets;
 using RoomCraft.Modules.Catalog;
+using RoomCraft.Modules.Identity;
 using RoomCraft.Modules.Projects;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddIdentityModule(builder.Configuration);
 builder.Services.AddProjectsModule(builder.Configuration);
 builder.Services.AddAssetsModule(builder.Configuration);
 builder.Services.AddCatalogModule(builder.Configuration);
@@ -11,6 +13,7 @@ var app = builder.Build();
 
 if (app.Configuration.GetValue("Database:ApplyMigrationsOnStartup", true))
 {
+    await app.Services.ApplyIdentityMigrationsAsync();
     await app.Services.ApplyProjectsMigrationsAsync();
     await app.Services.ApplyAssetsMigrationsAsync();
     await app.Services.ApplyCatalogMigrationsAsync();
@@ -23,6 +26,10 @@ app.MapGet("/api/health", () => Results.Ok(new
     utc = DateTimeOffset.UtcNow,
 }));
 
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapIdentityEndpoints();
 app.MapProjectsEndpoints();
 app.MapAssetsEndpoints();
 app.MapCatalogEndpoints();

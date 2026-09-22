@@ -41,6 +41,14 @@ if ! curl --fail --silent "$API_URL/api/health" >/dev/null; then
   exit 1
 fi
 
+COOKIE_JAR="${RUNNER_TEMP:-/tmp}/roomcraft-auth-${BASHPID}.txt"
+# shellcheck source=scripts/smoke-auth.sh
+source scripts/smoke-auth.sh
+roomcraft_authenticate "$API_URL" "$COOKIE_JAR"
+curl() {
+  command curl --cookie "$COOKIE_JAR" "$@"
+}
+
 CREATE_RESPONSE=$(cat <<JSON | curl --fail --silent --show-error \
   -X POST \
   -H "Content-Type: application/json" \

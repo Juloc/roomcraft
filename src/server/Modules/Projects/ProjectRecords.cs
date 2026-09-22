@@ -4,6 +4,7 @@ internal sealed class ProjectRecord
 {
     public required string Id { get; set; }
     public required string Name { get; set; }
+    public string? OwnerId { get; set; }
     public long CurrentRevision { get; set; }
     public DateTimeOffset CreatedUtc { get; set; }
     public DateTimeOffset UpdatedUtc { get; set; }

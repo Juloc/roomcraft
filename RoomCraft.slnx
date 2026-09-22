@@ -2,6 +2,7 @@
   <Project Path="src/server/RoomCraft.Host/RoomCraft.Host.csproj" />
   <Project Path="src/server/RoomCraft.SharedKernel/RoomCraft.SharedKernel.csproj" />
   <Project Path="src/server/Modules/Projects/RoomCraft.Modules.Projects.csproj" />
+  <Project Path="src/server/Modules/Identity/RoomCraft.Modules.Identity.csproj" />
   <Project Path="src/server/Modules/Assets/RoomCraft.Modules.Assets.csproj" />
   <Project Path="src/server/Modules/Catalog/RoomCraft.Modules.Catalog.csproj" />
 </Solution>
