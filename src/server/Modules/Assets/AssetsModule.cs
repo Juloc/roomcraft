@@ -175,7 +175,7 @@ public static class AssetsModule
         if (stream is null) return Results.NotFound();
 
         response.Headers.CacheControl = "public, max-age=31536000, immutable";
-        response.Headers.ETag = $"\\\"{asset.Sha256}\\\"";
+        response.Headers.ETag = $"\"{asset.Sha256}\"";
         return Results.File(stream, asset.ContentType, enableRangeProcessing: true);
     }
 
