@@ -59,6 +59,12 @@ export interface Opening {
   catalogAssetId?: EntityId;
 }
 
+/**
+ * A placed catalog asset.
+ *
+ * xMm/yMm are the centre of the footprint in plan coordinates.
+ * zMm is the object's bottom edge relative to the level elevation.
+ */
 export interface ObjectInstance {
   id: EntityId;
   assetId: EntityId;
