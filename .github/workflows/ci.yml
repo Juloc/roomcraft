@@ -56,3 +56,5 @@ jobs:
         run: dotnet build RoomCraft.slnx --configuration Release --no-restore
       - name: Project persistence smoke test
         run: bash scripts/smoke-project-persistence.sh
+      - name: Blueprint asset smoke test
+        run: bash scripts/smoke-blueprint-assets.sh
