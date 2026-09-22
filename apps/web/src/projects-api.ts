@@ -1,11 +1,38 @@
 import { parseProjectDocument, type ProjectDocument } from "@roomcraft/document";
 
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  revision: number;
+  updatedUtc: string;
+}
+
 export interface PersistedProject {
   id: string;
   name: string;
   revision: number;
   updatedUtc: string;
   document: ProjectDocument;
+}
+
+export async function listProjects(): Promise<ProjectSummary[]> {
+  const response = await fetch("/api/projects");
+  if (!response.ok) throw new Error(`Loading projects failed with HTTP ${response.status}.`);
+  return (await response.json()) as ProjectSummary[];
+}
+
+export async function adoptProject(projectId: string): Promise<ProjectSummary> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/adopt`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(
+      response.status === 404
+        ? "The local project no longer exists or already belongs to another account."
+        : `Adopting project failed with HTTP ${response.status}.`,
+    );
+  }
+  return (await response.json()) as ProjectSummary;
 }
 
 export async function loadProject(projectId: string): Promise<PersistedProject | null> {
