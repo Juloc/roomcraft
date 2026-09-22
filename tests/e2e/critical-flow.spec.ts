@@ -27,22 +27,22 @@ test("builds, persists, reloads and exports a planned room", async ({
   await expect(statValue(page, "Walls")).toHaveText("4");
 
   const box = await requireBox(plan);
-  const wallMidpoint = {
-    x: box.width * 0.475,
-    y: box.height * 0.25,
-  };
+  const firstWall = plan.locator(".plan-wall-hit").first();
 
   await page.getByRole("button", { name: "Select", exact: true }).click();
-  await plan.click({ position: wallMidpoint });
+  await firstWall.click();
 
-  const length = page.getByLabel("Length", { exact: true });
+  const wallPanel = page
+    .locator(".selection-properties")
+    .filter({ hasText: "Selected wall" });
+  const length = wallPanel.getByRole("textbox", { name: /Length/ });
   await expect(length).toBeVisible();
   await length.fill("2500 mm");
   await length.press("Enter");
   await expect(length).toHaveValue("2500 mm");
 
   await page.getByRole("button", { name: "Door", exact: true }).click();
-  await plan.click({ position: wallMidpoint });
+  await firstWall.click();
   await expect(statValue(page, "Openings")).toHaveText("1");
 
   await page.getByRole("button", { name: "Furniture", exact: true }).click();
@@ -171,9 +171,13 @@ async function drawClosedRoom(
     { x: box.width * 0.3, y: box.height * 0.25 },
   ];
 
-  for (const point of points) {
-    await plan.click({ position: point });
+  await plan.click({ position: points[0]! });
+  for (let index = 1; index < points.length; index += 1) {
+    await plan.click({ position: points[index]! });
+    await expect(statValue(page, "Walls")).toHaveText(String(index));
   }
+
+  await expect(statValue(page, "Rooms")).toHaveText("1");
 }
 
 function statValue(page: Page, label: string) {
