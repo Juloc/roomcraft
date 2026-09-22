@@ -326,7 +326,7 @@ These are continuous requirements, not separate cleanup phases.
 - command undo/redo tests
 - document migration fixtures
 - PostgreSQL integration smoke tests
-- Playwright central flow as soon as selection/exact dimensions are available
+- Playwright full-stack desktop + mobile critical flow (PostgreSQL + ASP.NET + Chromium) ✅
 
 ### Security and reliability
 - validate uploaded assets
@@ -369,7 +369,7 @@ Features outside this path should not delay the core planning workflow.
 
 ## V1 acceptance test
 
-One automated end-to-end test should eventually protect this complete path:
+Full-stack Playwright acceptance now protects the core desktop path plus the mobile viewport/touch shell:
 
 ```text
 create project
