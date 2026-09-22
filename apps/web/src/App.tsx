@@ -2653,6 +2653,12 @@ function PlanCanvas({
   } | null>(null);
   const multiTouchRef = useRef(false);
   const suppressedTouchPointersRef = useRef(new Set<number>());
+  const touchToolTapRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    point: PlanPoint;
+  } | null>(null);
   const itemDragRef = useRef<{
     pointerId: number;
     kind: "blueprint" | "object";
@@ -2959,6 +2965,16 @@ function PlanCanvas({
         onPointerUpCapture={endTouchGesture}
         onPointerCancelCapture={endTouchGesture}
         onPointerMove={(event) => {
+          const pendingTap = touchToolTapRef.current;
+          if (
+            pendingTap?.pointerId === event.pointerId &&
+            Math.hypot(
+              event.clientX - pendingTap.startClientX,
+              event.clientY - pendingTap.startClientY,
+            ) > 8
+          ) {
+            touchToolTapRef.current = null;
+          }
           if (updateTouchGesture(event)) return;
           if (updatePlanItemDrag(event)) return;
 
@@ -2991,15 +3007,42 @@ function PlanCanvas({
 
           const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
           if (!point) return;
+
+          if (event.pointerType === "touch") {
+            touchToolTapRef.current = {
+              pointerId: event.pointerId,
+              startClientX: event.clientX,
+              startClientY: event.clientY,
+              point,
+            };
+            return;
+          }
+
           onPoint(point);
         }}
         onPointerUp={(event) => {
-          if (suppressedTouchPointersRef.current.delete(event.pointerId)) return;
+          if (suppressedTouchPointersRef.current.delete(event.pointerId)) {
+            if (touchToolTapRef.current?.pointerId === event.pointerId) {
+              touchToolTapRef.current = null;
+            }
+            return;
+          }
+
+          const pendingTap = touchToolTapRef.current;
+          if (pendingTap?.pointerId === event.pointerId) {
+            touchToolTapRef.current = null;
+            onPoint(pendingTap.point);
+            return;
+          }
+
           if (finishPlanItemDrag(event)) return;
           endPan(event);
         }}
         onPointerCancel={(event) => {
           suppressedTouchPointersRef.current.delete(event.pointerId);
+          if (touchToolTapRef.current?.pointerId === event.pointerId) {
+            touchToolTapRef.current = null;
+          }
           cancelPlanItemDrag(event);
           endPan(event);
         }}
