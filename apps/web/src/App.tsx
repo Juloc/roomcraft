@@ -28,7 +28,14 @@ import {
 } from "@roomcraft/editor-core";
 import { projectLevel2D } from "@roomcraft/render-2d";
 import { RoomSceneRenderer } from "@roomcraft/render-3d";
-import { Button, LengthField, Panel, SegmentedControl, Toolbar } from "@roomcraft/ui";
+import {
+  Button,
+  LengthField,
+  NumberField,
+  Panel,
+  SegmentedControl,
+  Toolbar,
+} from "@roomcraft/ui";
 import {
   useEffect,
   useRef,
@@ -332,6 +339,22 @@ export function App() {
     );
   }
 
+  function moveBlueprint(blueprintId: string, xMm: number, yMm: number) {
+    const blueprint = level.blueprints.find((candidate) => candidate.id === blueprintId);
+    if (!blueprint || blueprint.locked) return;
+
+    session.execute(
+      new UpdateBlueprintCommand({
+        levelId,
+        blueprint: {
+          ...blueprint,
+          originXmm: Math.round(xMm),
+          originYmm: Math.round(yMm),
+        },
+      }),
+    );
+  }
+
   function cancelTransient() {
     setWallDraft(null);
     setHoverSnap(null);
@@ -489,6 +512,7 @@ export function App() {
               onPoint={handlePlanPoint}
               onSelectWall={selectWall}
               onSelectBlueprint={selectBlueprint}
+              onMoveBlueprint={moveBlueprint}
               onClearSelection={clearSelection}
               onPointerPosition={handlePlanPointerMove}
               onPointerLeave={handlePlanPointerLeave}
@@ -570,6 +594,47 @@ export function App() {
                       <dd>{selectedBlueprint.millimetresPerPixel.toFixed(3)} mm/px</dd>
                     </div>
                   </dl>
+                  <NumberField
+                    label="X"
+                    value={selectedBlueprint.originXmm}
+                    step={1}
+                    suffix="mm"
+                    disabled={selectedBlueprint.locked}
+                    onCommit={(value) =>
+                      updateSelectedBlueprint({ originXmm: Math.round(value) })
+                    }
+                  />
+                  <NumberField
+                    label="Y"
+                    value={selectedBlueprint.originYmm}
+                    step={1}
+                    suffix="mm"
+                    disabled={selectedBlueprint.locked}
+                    onCommit={(value) =>
+                      updateSelectedBlueprint({ originYmm: Math.round(value) })
+                    }
+                  />
+                  <NumberField
+                    label="Rotation"
+                    value={normalizeDegrees(selectedBlueprint.rotationDeg)}
+                    step={0.1}
+                    suffix="°"
+                    disabled={selectedBlueprint.locked}
+                    onCommit={(value) =>
+                      updateSelectedBlueprint({ rotationDeg: normalizeDegrees(value) })
+                    }
+                  />
+                  <NumberField
+                    label="Opacity"
+                    value={selectedBlueprint.opacity * 100}
+                    min={0}
+                    max={100}
+                    step={1}
+                    suffix="%"
+                    onCommit={(value) =>
+                      updateSelectedBlueprint({ opacity: value / 100 })
+                    }
+                  />
                   <Button variant="secondary" onClick={startBlueprintCalibration}>
                     Calibrate scale
                   </Button>
@@ -637,6 +702,7 @@ interface PlanCanvasProps {
   onPoint(point: PlanPoint): void;
   onSelectWall(wallId: string): void;
   onSelectBlueprint(blueprintId: string): void;
+  onMoveBlueprint(blueprintId: string, xMm: number, yMm: number): void;
   onClearSelection(): void;
   onPointerPosition(point: PlanPoint): void;
   onPointerLeave(): void;
@@ -661,6 +727,7 @@ function PlanCanvas({
   onPoint,
   onSelectWall,
   onSelectBlueprint,
+  onMoveBlueprint,
   onClearSelection,
   onPointerPosition,
   onPointerLeave,
@@ -671,6 +738,21 @@ function PlanCanvas({
     pointerId: number;
     lastClientX: number;
     lastClientY: number;
+  } | null>(null);
+  const blueprintDragRef = useRef<{
+    pointerId: number;
+    blueprintId: string;
+    startPlanXmm: number;
+    startPlanYmm: number;
+    originXmm: number;
+    originYmm: number;
+    currentXmm: number;
+    currentYmm: number;
+  } | null>(null);
+  const [blueprintDragPreview, setBlueprintDragPreview] = useState<{
+    blueprintId: string;
+    xMm: number;
+    yMm: number;
   } | null>(null);
   const [camera, setCamera] = useState<PlanCamera2D>({ ...DEFAULT_PLAN_CAMERA });
   const [viewportSize, setViewportSize] = useState<ViewportSizePx>({
@@ -728,6 +810,92 @@ function PlanCanvas({
     panRef.current = null;
   }
 
+  function beginBlueprintDrag(
+    event: ReactPointerEvent<SVGImageElement>,
+    blueprint: ReturnType<typeof projectLevel2D>["blueprints"][number],
+  ) {
+    if (activeTool !== "select" || event.button !== 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    onSelectBlueprint(blueprint.id);
+
+    if (blueprint.locked) return;
+
+    const svg = svgRef.current;
+    if (!svg) return;
+    const point = clientToPlan(svg, event.clientX, event.clientY);
+    if (!point) return;
+
+    svg.setPointerCapture(event.pointerId);
+    blueprintDragRef.current = {
+      pointerId: event.pointerId,
+      blueprintId: blueprint.id,
+      startPlanXmm: point.xMm,
+      startPlanYmm: point.yMm,
+      originXmm: blueprint.xMm,
+      originYmm: blueprint.yMm,
+      currentXmm: blueprint.xMm,
+      currentYmm: blueprint.yMm,
+    };
+    setBlueprintDragPreview({
+      blueprintId: blueprint.id,
+      xMm: blueprint.xMm,
+      yMm: blueprint.yMm,
+    });
+  }
+
+  function updateBlueprintDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    const drag = blueprintDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+
+    const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
+    if (!point) return true;
+
+    drag.currentXmm = Math.round(
+      drag.originXmm + point.xMm - drag.startPlanXmm,
+    );
+    drag.currentYmm = Math.round(
+      drag.originYmm + point.yMm - drag.startPlanYmm,
+    );
+    setBlueprintDragPreview({
+      blueprintId: drag.blueprintId,
+      xMm: drag.currentXmm,
+      yMm: drag.currentYmm,
+    });
+    return true;
+  }
+
+  function finishBlueprintDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    const drag = blueprintDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    blueprintDragRef.current = null;
+    setBlueprintDragPreview(null);
+
+    if (drag.currentXmm !== drag.originXmm || drag.currentYmm !== drag.originYmm) {
+      onMoveBlueprint(drag.blueprintId, drag.currentXmm, drag.currentYmm);
+    }
+    return true;
+  }
+
+  function cancelBlueprintDrag(event?: ReactPointerEvent<SVGSVGElement>) {
+    const drag = blueprintDragRef.current;
+    if (
+      drag &&
+      event &&
+      event.currentTarget.hasPointerCapture(drag.pointerId)
+    ) {
+      event.currentTarget.releasePointerCapture(drag.pointerId);
+    }
+    blueprintDragRef.current = null;
+    setBlueprintDragPreview(null);
+  }
+
   function fitPlan() {
     const points = [
       ...walls.flatMap((wall) => [
@@ -764,6 +932,8 @@ function PlanCanvas({
           setCamera((current) => zoomPlanCameraAt(current, anchor, scale));
         }}
         onPointerMove={(event) => {
+          if (updateBlueprintDrag(event)) return;
+
           const pan = panRef.current;
           if (pan?.pointerId === event.pointerId) {
             const xPx = event.clientX - pan.lastClientX;
@@ -794,13 +964,24 @@ function PlanCanvas({
           if (!point) return;
           onPoint(point);
         }}
-        onPointerUp={endPan}
-        onPointerCancel={endPan}
+        onPointerUp={(event) => {
+          if (finishBlueprintDrag(event)) return;
+          endPan(event);
+        }}
+        onPointerCancel={(event) => {
+          cancelBlueprintDrag(event);
+          endPan(event);
+        }}
         onPointerLeave={() => {
           if (!panRef.current) onPointerLeave();
         }}
         onKeyDown={(event) => {
-          if (event.key === "Escape") onCancel();
+          if (event.key !== "Escape") return;
+          if (blueprintDragRef.current) {
+            cancelBlueprintDrag();
+            return;
+          }
+          onCancel();
         }}
       >
         <defs>
@@ -823,29 +1004,30 @@ function PlanCanvas({
           .filter((blueprint) => blueprint.visible)
           .map((blueprint) => {
             const selected = blueprint.id === selectedBlueprintId;
-            const transform = `rotate(${blueprint.rotationDeg} ${blueprint.xMm} ${blueprint.yMm})`;
+            const preview =
+              blueprintDragPreview?.blueprintId === blueprint.id
+                ? blueprintDragPreview
+                : null;
+            const xMm = preview?.xMm ?? blueprint.xMm;
+            const yMm = preview?.yMm ?? blueprint.yMm;
+            const transform = `rotate(${blueprint.rotationDeg} ${xMm} ${yMm})`;
             return (
               <g key={blueprint.id} transform={transform}>
                 <image
                   href={assetContentUrl(blueprint.assetId)}
-                  x={blueprint.xMm}
-                  y={blueprint.yMm}
+                  x={xMm}
+                  y={yMm}
                   width={blueprint.widthMm}
                   height={blueprint.heightMm}
                   opacity={blueprint.opacity}
                   preserveAspectRatio="none"
-                  className="plan-blueprint"
-                  onPointerDown={(event) => {
-                    if (activeTool !== "select" || event.button !== 0) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onSelectBlueprint(blueprint.id);
-                  }}
+                  className={`plan-blueprint${blueprint.locked ? " plan-blueprint--locked" : ""}`}
+                  onPointerDown={(event) => beginBlueprintDrag(event, blueprint)}
                 />
                 {selected ? (
                   <rect
-                    x={blueprint.xMm}
-                    y={blueprint.yMm}
+                    x={xMm}
+                    y={yMm}
                     width={blueprint.widthMm}
                     height={blueprint.heightMm}
                     className="plan-blueprint-selection"
@@ -1075,6 +1257,11 @@ function endpointFromSnap(snap: PlanSnapResult) {
 
 function samePoint(a: PlanPoint, b: PlanPoint): boolean {
   return a.xMm === b.xMm && a.yMm === b.yMm;
+}
+
+function normalizeDegrees(value: number): number {
+  const normalized = value % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
 }
 
 function projectedBlueprintCorners(
