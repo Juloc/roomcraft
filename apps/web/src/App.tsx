@@ -53,10 +53,15 @@ import {
   exportProjectGlb,
   glbProjectFileName,
   parseRoomCraftDocumentFile,
+  rasterFloorPlanFileName,
   roomCraftFileName,
   serializeRoomCraftDocument,
   svgFloorPlanFileName,
 } from "@roomcraft/export";
+import {
+  rasterizeSvgFloorPlan,
+  type RasterFloorPlanFormat,
+} from "@roomcraft/export/browser";
 import {
   DEFAULT_CABINET_DIMENSIONS,
   cabinetMinimumDimensions,
@@ -265,6 +270,8 @@ export function App() {
   const [projectFileError, setProjectFileError] = useState<string | null>(null);
   const [glbExportState, setGlbExportState] = useState<"idle" | "exporting">("idle");
   const [glbExportError, setGlbExportError] = useState<string | null>(null);
+  const [rasterExportState, setRasterExportState] = useState<"idle" | "exporting">("idle");
+  const [rasterExportError, setRasterExportError] = useState<string | null>(null);
   const [blueprintImportState, setBlueprintImportState] = useState<"idle" | "uploading">("idle");
   const [blueprintImportError, setBlueprintImportError] = useState<string | null>(null);
   const [calibrationDraft, setCalibrationDraft] = useState<BlueprintCalibrationDraft | null>(null);
@@ -1293,6 +1300,31 @@ export function App() {
     );
   }
 
+  async function exportRasterFloorPlan(format: RasterFloorPlanFormat) {
+    setRasterExportState("exporting");
+    setRasterExportError(null);
+
+    try {
+      const svg = exportLevelSvg(document, levelId);
+      const blob = await rasterizeSvgFloorPlan(svg, {
+        format,
+        maxDimensionPx: 2400,
+        backgroundColor: "#ffffff",
+        ...(format === "jpeg" ? { jpegQuality: 0.92 } : {}),
+      });
+      downloadBlob(
+        rasterFloorPlanFileName(document, levelId, format),
+        blob,
+      );
+    } catch (error) {
+      setRasterExportError(
+        error instanceof Error ? error.message : "Raster export failed.",
+      );
+    } finally {
+      setRasterExportState("idle");
+    }
+  }
+
   async function exportGlbProject() {
     setGlbExportState("exporting");
     setGlbExportError(null);
@@ -1429,6 +1461,20 @@ export function App() {
           />
           <Button variant="ghost" onClick={exportSvgFloorPlan}>
             Export SVG
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={rasterExportState === "exporting"}
+            onClick={() => void exportRasterFloorPlan("png")}
+          >
+            Export PNG
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={rasterExportState === "exporting"}
+            onClick={() => void exportRasterFloorPlan("jpeg")}
+          >
+            Export JPEG
           </Button>
           <Button
             variant="ghost"
@@ -1893,6 +1939,12 @@ export function App() {
               {glbExportError ? (
                 <div className="inline-error" role="alert">
                   {glbExportError}
+                </div>
+              ) : null}
+
+              {rasterExportError ? (
+                <div className="inline-error" role="alert">
+                  {rasterExportError}
                 </div>
               ) : null}
 
