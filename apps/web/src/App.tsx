@@ -2645,6 +2645,14 @@ function PlanCanvas({
     lastClientX: number;
     lastClientY: number;
   } | null>(null);
+  const touchPointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{
+    distance: number;
+    midpointX: number;
+    midpointY: number;
+  } | null>(null);
+  const multiTouchRef = useRef(false);
+  const suppressedTouchPointersRef = useRef(new Set<number>());
   const itemDragRef = useRef<{
     pointerId: number;
     kind: "blueprint" | "object";
@@ -2729,6 +2737,7 @@ function PlanCanvas({
     },
   ) {
     if (activeTool !== "select" || event.button !== 0) return;
+    if (event.pointerType === "touch" && multiTouchRef.current) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -2822,6 +2831,91 @@ function PlanCanvas({
     setItemDragPreview(null);
   }
 
+  function beginTouchGesture(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.pointerType !== "touch") return;
+
+    touchPointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    if (touchPointersRef.current.size < 2) return;
+
+    multiTouchRef.current = true;
+    for (const pointerId of touchPointersRef.current.keys()) {
+      suppressedTouchPointersRef.current.add(pointerId);
+    }
+
+    cancelPlanItemDrag(event);
+
+    const pan = panRef.current;
+    if (pan && event.currentTarget.hasPointerCapture(pan.pointerId)) {
+      event.currentTarget.releasePointerCapture(pan.pointerId);
+    }
+    panRef.current = null;
+
+    const points = [...touchPointersRef.current.values()];
+    const first = points[0];
+    const second = points[1];
+    if (!first || !second) return;
+
+    pinchRef.current = {
+      distance: Math.hypot(second.x - first.x, second.y - first.y),
+      midpointX: (first.x + second.x) / 2,
+      midpointY: (first.y + second.y) / 2,
+    };
+  }
+
+  function updateTouchGesture(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    if (event.pointerType !== "touch" || !touchPointersRef.current.has(event.pointerId)) {
+      return false;
+    }
+
+    touchPointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    if (touchPointersRef.current.size < 2) {
+      return suppressedTouchPointersRef.current.has(event.pointerId);
+    }
+
+    event.preventDefault();
+    const points = [...touchPointersRef.current.values()];
+    const first = points[0];
+    const second = points[1];
+    if (!first || !second) return true;
+
+    const next = {
+      distance: Math.hypot(second.x - first.x, second.y - first.y),
+      midpointX: (first.x + second.x) / 2,
+      midpointY: (first.y + second.y) / 2,
+    };
+    const previous = pinchRef.current;
+    pinchRef.current = next;
+    if (!previous || previous.distance <= 0 || next.distance <= 0) return true;
+
+    const anchor = clientToPlan(event.currentTarget, next.midpointX, next.midpointY);
+    const zoomScale = Math.max(0.5, Math.min(2, previous.distance / next.distance));
+    const xPx = next.midpointX - previous.midpointX;
+    const yPx = next.midpointY - previous.midpointY;
+
+    setCamera((current) => {
+      const panned = panPlanCamera(current, { xPx, yPx });
+      return anchor ? zoomPlanCameraAt(panned, anchor, zoomScale) : panned;
+    });
+    return true;
+  }
+
+  function endTouchGesture(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.pointerType !== "touch") return;
+    touchPointersRef.current.delete(event.pointerId);
+    if (touchPointersRef.current.size < 2) {
+      pinchRef.current = null;
+      multiTouchRef.current = false;
+    }
+  }
+
   function fitPlan() {
     const points = [
       ...walls.flatMap((wall) => [
@@ -2858,7 +2952,14 @@ function PlanCanvas({
           const scale = Math.exp(boundedDelta * 0.0018);
           setCamera((current) => zoomPlanCameraAt(current, anchor, scale));
         }}
+        onPointerDownCapture={beginTouchGesture}
+        onPointerMoveCapture={(event) => {
+          updateTouchGesture(event);
+        }}
+        onPointerUpCapture={endTouchGesture}
+        onPointerCancelCapture={endTouchGesture}
         onPointerMove={(event) => {
+          if (updateTouchGesture(event)) return;
           if (updatePlanItemDrag(event)) return;
 
           const pan = panRef.current;
@@ -2875,6 +2976,7 @@ function PlanCanvas({
           if (point) onPointerPosition(point);
         }}
         onPointerDown={(event) => {
+          if (event.pointerType === "touch" && multiTouchRef.current) return;
           const shouldPan =
             event.button === 1 || (activeTool === "select" && event.button === 0);
           if (shouldPan) {
@@ -2892,10 +2994,12 @@ function PlanCanvas({
           onPoint(point);
         }}
         onPointerUp={(event) => {
+          if (suppressedTouchPointersRef.current.delete(event.pointerId)) return;
           if (finishPlanItemDrag(event)) return;
           endPan(event);
         }}
         onPointerCancel={(event) => {
+          suppressedTouchPointersRef.current.delete(event.pointerId);
           cancelPlanItemDrag(event);
           endPan(event);
         }}
