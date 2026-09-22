@@ -17,6 +17,7 @@ internal sealed class AssetsDbContext(DbContextOptions<AssetsDbContext> options)
         asset.Property(item => item.OriginalFileName).HasMaxLength(512).IsRequired();
         asset.Property(item => item.Sha256).HasMaxLength(64).IsFixedLength().IsRequired();
         asset.Property(item => item.StorageKey).HasMaxLength(256).IsRequired();
+        asset.Property(item => item.MetadataJson).HasColumnType("jsonb").IsRequired();
         asset.HasIndex(item => new { item.Kind, item.Sha256 }).IsUnique();
         asset.HasIndex(item => item.CreatedUtc);
     }
