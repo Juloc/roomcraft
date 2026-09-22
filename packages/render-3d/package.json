@@ -12,7 +12,8 @@
     "@roomcraft/document": "*",
     "@roomcraft/geometry": "*",
     "three": "0.186.0",
-    "@roomcraft/catalog": "*"
+    "@roomcraft/catalog": "*",
+    "@roomcraft/parametric": "*"
   },
   "devDependencies": {
     "@types/three": "0.186.0",
