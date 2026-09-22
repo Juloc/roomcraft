@@ -292,6 +292,21 @@ export function App() {
     resolveFurnitureDefinition(activeFurnitureAssetId) ??
     BUILTIN_FURNITURE[0] ??
     null;
+  const selectedObjectIsCatalog =
+    selectedObject !== null &&
+    parseCatalogVersionAssetId(selectedObject.assetId) !== null;
+  const selectedObjectDimensionsLocked =
+    selectedObject?.locked === true ||
+    selectedObjectIsCatalog ||
+    selectedObjectDefinition?.resizable === false;
+  const objectAssetLabels: Readonly<Record<string, string>> = Object.fromEntries([
+    ...BUILTIN_FURNITURE.map(
+      (definition) => [definition.id, definition.name] as const,
+    ),
+    ...Object.values(catalogDefinitions).map(
+      (definition) => [definition.id, definition.name] as const,
+    ),
+  ]);
 
   function resolveFurnitureDefinition(
     assetId: string,
@@ -1091,6 +1106,7 @@ export function App() {
             <PlanCanvas
               blueprints={projection.blueprints}
               objects={projection.objects}
+              objectAssetLabels={objectAssetLabels}
               walls={projection.walls}
               openings={projection.openings}
               rooms={projection.rooms}
@@ -1256,10 +1272,73 @@ export function App() {
               {activeTool === "furniture" ? (
                 <div className="furniture-palette">
                   <span className="eyebrow">Furniture</span>
-                  <div className="furniture-palette__grid">
-                    {BUILTIN_ASSETS.map((asset) => (
+
+                  <div className="furniture-palette__section">
+                    <strong className="furniture-palette__section-title">
+                      Quick shapes
+                    </strong>
+                    <div className="furniture-palette__grid">
+                      {BUILTIN_FURNITURE.map((asset) => (
+                        <Button
+                          key={asset.id}
+                          type="button"
+                          variant={
+                            asset.id === activeFurnitureAssetId
+                              ? "primary"
+                              : "secondary"
+                          }
+                          onClick={() => setActiveFurnitureAssetId(asset.id)}
+                        >
+                          {asset.name}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <form
+                    className="catalog-search"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void runCatalogSearch();
+                    }}
+                  >
+                    <TextField
+                      label="Catalog search"
+                      value={catalogQuery}
+                      onChange={setCatalogQuery}
+                      placeholder="Name, manufacturer or SKU"
+                      inputMode="search"
+                    />
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      disabled={catalogSearchState === "loading"}
+                    >
+                      {catalogSearchState === "loading"
+                        ? "Searching…"
+                        : "Search"}
+                    </Button>
+                  </form>
+
+                  {catalogSearchError ? (
+                    <div className="inline-error" role="alert">
+                      {catalogSearchError}
+                    </div>
+                  ) : null}
+
+                  {catalogSearchState === "ready" ? (
+                    <span className="property-hint">
+                      {catalogResultTotal} catalog item
+                      {catalogResultTotal === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+
+                  <div className="catalog-results" role="list">
+                    {catalogResults.map((asset) => (
                       <Button
                         key={asset.id}
+                        type="button"
+                        className="catalog-card"
                         variant={
                           asset.id === activeFurnitureAssetId
                             ? "primary"
@@ -1267,12 +1346,39 @@ export function App() {
                         }
                         onClick={() => setActiveFurnitureAssetId(asset.id)}
                       >
-                        {asset.name}
+                        {asset.thumbnailAssetId ? (
+                          <img
+                            className="catalog-card__thumbnail"
+                            src={assetContentUrl(asset.thumbnailAssetId)}
+                            alt=""
+                          />
+                        ) : (
+                          <span
+                            className="catalog-card__placeholder"
+                            aria-hidden="true"
+                          >
+                            □
+                          </span>
+                        )}
+                        <span className="catalog-card__body">
+                          <strong>{asset.name}</strong>
+                          <span>
+                            {asset.manufacturer ?? asset.category}
+                            {asset.sku ? ` · ${asset.sku}` : ""}
+                          </span>
+                          <span>
+                            {asset.defaultDimensionsMm.widthMm} ×{" "}
+                            {asset.defaultDimensionsMm.depthMm} ×{" "}
+                            {asset.defaultDimensionsMm.heightMm} mm
+                          </span>
+                        </span>
                       </Button>
                     ))}
                   </div>
+
                   <span className="property-hint">
-                    Choose a type, then click the plan to place it.
+                    Catalog products are placed with their current immutable
+                    version and exact dimensions.
                   </span>
                 </div>
               ) : null}
@@ -1562,6 +1668,38 @@ export function App() {
                   <span className="eyebrow">
                     Selected {selectedObjectDefinition?.name ?? "object"}
                   </span>
+                  {selectedObjectDefinition?.source === "catalog" ? (
+                    <>
+                      <dl className="stats stats--compact">
+                        <div>
+                          <dt>Source</dt>
+                          <dd>Catalog</dd>
+                        </div>
+                        <div>
+                          <dt>Manufacturer</dt>
+                          <dd>{selectedObjectDefinition.manufacturer ?? "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>SKU</dt>
+                          <dd>{selectedObjectDefinition.sku ?? "—"}</dd>
+                        </div>
+                      </dl>
+                      {selectedObjectDefinition.productUrl ? (
+                        <a
+                          className="product-link"
+                          href={selectedObjectDefinition.productUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open product page
+                        </a>
+                      ) : null}
+                    </>
+                  ) : selectedObjectIsCatalog ? (
+                    <span className="property-hint">
+                      Loading the saved catalog version…
+                    </span>
+                  ) : null}
                   <NumberField
                     label="X"
                     value={selectedObject.xMm}
@@ -1599,7 +1737,7 @@ export function App() {
                     minMm={
                       selectedObjectDefinition?.minimumDimensionsMm.widthMm ?? 1
                     }
-                    disabled={selectedObject.locked}
+                    disabled={selectedObjectDimensionsLocked}
                     onCommit={(valueMm) =>
                       updateSelectedObject({ widthMm: valueMm })
                     }
@@ -1610,7 +1748,7 @@ export function App() {
                     minMm={
                       selectedObjectDefinition?.minimumDimensionsMm.depthMm ?? 1
                     }
-                    disabled={selectedObject.locked}
+                    disabled={selectedObjectDimensionsLocked}
                     onCommit={(valueMm) =>
                       updateSelectedObject({ depthMm: valueMm })
                     }
@@ -1621,7 +1759,7 @@ export function App() {
                     minMm={
                       selectedObjectDefinition?.minimumDimensionsMm.heightMm ?? 1
                     }
-                    disabled={selectedObject.locked}
+                    disabled={selectedObjectDimensionsLocked}
                     onCommit={(valueMm) =>
                       updateSelectedObject({ heightMm: valueMm })
                     }
@@ -1672,6 +1810,7 @@ export function App() {
 interface PlanCanvasProps {
   blueprints: ReturnType<typeof projectLevel2D>["blueprints"];
   objects: ReturnType<typeof projectLevel2D>["objects"];
+  objectAssetLabels: Readonly<Record<string, string>>;
   walls: ReturnType<typeof projectLevel2D>["walls"];
   openings: ReturnType<typeof projectLevel2D>["openings"];
   rooms: ReturnType<typeof projectLevel2D>["rooms"];
@@ -1703,6 +1842,7 @@ interface PlanCanvasProps {
 function PlanCanvas({
   blueprints,
   objects,
+  objectAssetLabels,
   walls,
   openings,
   rooms,
@@ -2133,7 +2273,7 @@ function PlanCanvas({
               : null;
           const xMm = preview?.xMm ?? object.centerXmm;
           const yMm = preview?.yMm ?? object.centerYmm;
-          const definition = getBuiltinAssetDefinition(object.assetId);
+          const label = objectAssetLabels[object.assetId] ?? "Object";
 
           return (
             <g
@@ -2177,7 +2317,7 @@ function PlanCanvas({
                   dominantBaseline="middle"
                   pointerEvents="none"
                 >
-                  {definition?.name ?? "Object"}
+                  {label}
                 </text>
               ) : null}
             </g>
