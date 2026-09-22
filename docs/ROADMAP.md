@@ -157,7 +157,7 @@ Goal: support real multi-storey homes/apartments.
 - level elevation ✅
 - default storey height ✅
 - floor thickness ✅
-- duplicate ✅ shell to new level ✅
+- duplicate shell to new level ✅
 - show lower/upper level as optional ghost ✅
 - 3D all-level view ✅
 - stairs ◻ after basic multi-level behavior is stable
@@ -190,7 +190,7 @@ Goal: plan with real dimensions and reusable assets.
 - exact width/depth/height ✅
 - place/move/rotate ✅
 - object snapping ✅
-- duplicate
+- duplicate ✅
 - lock ✅
 
 ### 6.2 Catalog
