@@ -201,12 +201,15 @@ Goal: plan with real dimensions and reusable assets.
 - thumbnail references/browser display 🚧
 - favorites later if justified
 
-### 6.3 GLB import
-- Assets backend module
-- upload validation
-- bounds/unit/orientation/pivot normalization
-- immutable processed model
-- user private catalog item
+### 6.3 GLB import 🚧
+- Assets backend module ✅
+- GLB 2.0 container validation and self-contained resource policy ✅
+- bounds / glTF metre units / canonical orientation / center-bottom pivot normalization ✅
+- immutable content-addressed GLB asset ✅
+- custom catalog item with immutable version reference ✅
+- real GLB rendering with lazy runtime loading ✅
+- automatic model thumbnail generation ⬜
+- identity-scoped private catalog ownership ◻
 
 Phase 6 exit criteria:
 - a user can furnish a room with exact-size generic and imported furniture

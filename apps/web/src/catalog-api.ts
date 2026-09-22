@@ -50,6 +50,25 @@ export interface CatalogSearchOptions {
   signal?: AbortSignal;
 }
 
+export interface CatalogVersionInput {
+  assetId?: string | null;
+  thumbnailAssetId?: string | null;
+  widthMm: number;
+  depthMm: number;
+  heightMm: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CatalogItemCreateInput {
+  id?: string | null;
+  name: string;
+  category: string;
+  manufacturer?: string | null;
+  sku?: string | null;
+  productUrl?: string | null;
+  version: CatalogVersionInput;
+}
+
 export async function searchCatalogItems(
   options: CatalogSearchOptions = {},
 ): Promise<CatalogSearchResponseDto> {
@@ -70,6 +89,39 @@ export async function searchCatalogItems(
     throw new Error(await readApiError(response, "Catalog search failed."));
   }
   return (await response.json()) as CatalogSearchResponseDto;
+}
+
+export async function createCatalogItem(
+  input: CatalogItemCreateInput,
+): Promise<CatalogItemDetailDto> {
+  const response = await fetch("/api/catalog/items", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Catalog item could not be created."));
+  }
+  return (await response.json()) as CatalogItemDetailDto;
+}
+
+export async function ensureCatalogItem(
+  input: CatalogItemCreateInput & { id: string },
+): Promise<CatalogItemDetailDto> {
+  const response = await fetch("/api/catalog/items", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (response.status === 409) {
+    return getCatalogItem(input.id);
+  }
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Catalog item could not be created."));
+  }
+
+  return (await response.json()) as CatalogItemDetailDto;
 }
 
 export async function getCatalogItem(

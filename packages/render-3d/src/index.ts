@@ -11,6 +11,7 @@ import { mmToMetres } from "@roomcraft/geometry";
 import {
   AmbientLight,
   BoxGeometry,
+  BoxHelper,
   Color,
   DirectionalLight,
   GridHelper,
@@ -24,11 +25,20 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import {
+  createNormalizedModelInstance,
+  disposeModelResources,
+  loadGlbPrototype,
+  type RuntimeModelAsset,
+} from "./models";
+
+export * from "./models";
 
 export type RoomSceneLevelScope = "active" | "all";
 
 export interface RoomSceneOptions {
   levelScope?: RoomSceneLevelScope;
+  modelAssets?: readonly RuntimeModelAsset[];
 }
 
 export class RoomSceneRenderer {
@@ -59,6 +69,11 @@ export class RoomSceneRenderer {
   });
   private readonly resizeObserver: ResizeObserver;
   private readonly grid: GridHelper;
+  private readonly modelAssetsByObjectAssetId = new Map<string, RuntimeModelAsset>();
+  private readonly modelPrototypePromises = new Map<string, Promise<Group>>();
+  private readonly modelPrototypes = new Map<string, Group>();
+  private selectionHelper: BoxHelper | null = null;
+  private renderGeneration = 0;
   private selectedId: string | null = null;
   private disposed = false;
 
@@ -107,9 +122,16 @@ export class RoomSceneRenderer {
     const levels =
       options.levelScope === "all" ? document.levels : [activeLevel];
 
+    this.renderGeneration += 1;
+    this.modelAssetsByObjectAssetId.clear();
+    for (const asset of options.modelAssets ?? []) {
+      this.modelAssetsByObjectAssetId.set(asset.objectAssetId, asset);
+    }
+
     this.clearGenerated();
     for (const level of levels) this.buildLevel(level);
     this.frameLevels(levels);
+    this.updateSelectionHelper();
     this.render();
   }
 
@@ -118,10 +140,11 @@ export class RoomSceneRenderer {
     this.selectedId = id;
 
     this.generated.traverse((child) => {
-      if (!(child instanceof Mesh)) return;
+      if (!(child instanceof Mesh) || child.userData.roomcraftExternalAsset) return;
       child.material = this.materialForMesh(child);
     });
 
+    this.updateSelectionHelper();
     this.render();
   }
 
@@ -133,6 +156,11 @@ export class RoomSceneRenderer {
     this.controls.removeEventListener("change", this.render);
     this.controls.dispose();
     this.clearGenerated();
+    for (const prototype of this.modelPrototypes.values()) {
+      disposeModelResources(prototype);
+    }
+    this.modelPrototypePromises.clear();
+    this.modelPrototypes.clear();
     this.wallMaterial.dispose();
     this.selectedWallMaterial.dispose();
     this.objectMaterial.dispose();
@@ -308,9 +336,21 @@ export class RoomSceneRenderer {
   }
 
   private buildObject(level: Level, object: ObjectInstance): void {
+    const runtimeAsset = this.modelAssetsByObjectAssetId.get(object.assetId);
+    if (runtimeAsset) {
+      this.buildExternalObject(level, object, runtimeAsset);
+      return;
+    }
+
     const definition = getBuiltinAssetDefinition(object.assetId);
     const primitive: BuiltinPrimitiveKind = definition?.primitive ?? "box";
 
+    const group = this.createObjectGroup(level, object);
+    this.addPrimitiveParts(group, object, primitive);
+    this.generated.add(group);
+  }
+
+  private createObjectGroup(level: Level, object: ObjectInstance): Group {
     const group = new Group();
     group.name = object.id;
     group.userData.roomcraftId = object.id;
@@ -321,9 +361,105 @@ export class RoomSceneRenderer {
       mmToMetres(object.yMm),
     );
     group.rotation.y = -(object.rotationDeg * Math.PI) / 180;
+    return group;
+  }
 
-    this.addPrimitiveParts(group, object, primitive);
+  private buildExternalObject(
+    level: Level,
+    object: ObjectInstance,
+    runtimeAsset: RuntimeModelAsset,
+  ): void {
+    const group = this.createObjectGroup(level, object);
+    group.userData.roomcraftUsesExternalModel = true;
+
+    // Keep a correctly sized semantic placeholder while the immutable GLB loads.
+    this.addObjectPart(
+      group,
+      object,
+      object.widthMm,
+      object.heightMm,
+      object.depthMm,
+      0,
+      object.heightMm / 2,
+      0,
+      "model-placeholder",
+    );
     this.generated.add(group);
+
+    const generation = this.renderGeneration;
+    void this.getModelPrototype(runtimeAsset.contentUrl)
+      .then((prototype) => {
+        if (
+          this.disposed ||
+          generation !== this.renderGeneration ||
+          group.parent !== this.generated
+        ) {
+          return;
+        }
+
+        for (const child of [...group.children]) {
+          child.traverse((descendant) => {
+            if (descendant instanceof Mesh && !descendant.userData.roomcraftExternalAsset) {
+              descendant.geometry.dispose();
+            }
+          });
+          group.remove(child);
+        }
+
+        const instance = createNormalizedModelInstance(
+          prototype,
+          {
+            widthMm: object.widthMm,
+            depthMm: object.depthMm,
+            heightMm: object.heightMm,
+          },
+          object.id,
+        );
+        group.add(instance);
+        delete group.userData.roomcraftModelLoadError;
+        this.updateSelectionHelper();
+        this.render();
+      })
+      .catch((error: unknown) => {
+        if (
+          this.disposed ||
+          generation !== this.renderGeneration ||
+          group.parent !== this.generated
+        ) {
+          return;
+        }
+
+        group.userData.roomcraftModelLoadError =
+          error instanceof Error ? error.message : "Model could not be loaded.";
+        this.render();
+      });
+  }
+
+  private getModelPrototype(contentUrl: string): Promise<Group> {
+    const cached = this.modelPrototypes.get(contentUrl);
+    if (cached) return Promise.resolve(cached);
+
+    const pending = this.modelPrototypePromises.get(contentUrl);
+    if (pending) return pending;
+
+    const promise = loadGlbPrototype(contentUrl)
+      .then((prototype) => {
+        this.modelPrototypePromises.delete(contentUrl);
+        if (this.disposed) {
+          disposeModelResources(prototype);
+          throw new Error("RoomSceneRenderer has been disposed.");
+        }
+
+        this.modelPrototypes.set(contentUrl, prototype);
+        return prototype;
+      })
+      .catch((error) => {
+        this.modelPrototypePromises.delete(contentUrl);
+        throw error;
+      });
+
+    this.modelPrototypePromises.set(contentUrl, promise);
+    return promise;
   }
 
   private addPrimitiveParts(
@@ -430,6 +566,29 @@ export class RoomSceneRenderer {
         : this.wallMaterial;
   }
 
+  private updateSelectionHelper(): void {
+    if (this.selectionHelper) {
+      this.scene.remove(this.selectionHelper);
+      this.selectionHelper.geometry.dispose();
+      disposeMaterials(this.selectionHelper.material);
+      this.selectionHelper = null;
+    }
+
+    if (!this.selectedId) return;
+
+    const selected = this.generated.children.find(
+      (child) =>
+        child.userData.roomcraftId === this.selectedId &&
+        child.userData.roomcraftUsesExternalModel === true,
+    );
+    if (!selected) return;
+
+    const helper = new BoxHelper(selected, 0x5f86f2);
+    helper.userData.roomcraftSelectionHelper = true;
+    this.selectionHelper = helper;
+    this.scene.add(helper);
+  }
+
   private frameLevels(levels: readonly Level[]): void {
     const levelsWithContent = levels.filter(
       (level) => level.vertices.length > 0 || level.objects.length > 0,
@@ -507,8 +666,17 @@ export class RoomSceneRenderer {
   }
 
   private clearGenerated(): void {
+    if (this.selectionHelper) {
+      this.scene.remove(this.selectionHelper);
+      this.selectionHelper.geometry.dispose();
+      disposeMaterials(this.selectionHelper.material);
+      this.selectionHelper = null;
+    }
+
     this.generated.traverse((child) => {
-      if (child instanceof Mesh) child.geometry.dispose();
+      if (child instanceof Mesh && !child.userData.roomcraftExternalAsset) {
+        child.geometry.dispose();
+      }
     });
     this.generated.clear();
   }
