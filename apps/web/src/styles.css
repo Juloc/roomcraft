@@ -467,3 +467,30 @@ body {
   padding-top: var(--rc-space-4);
   border-top: 1px solid var(--rc-border);
 }
+
+.plan-level-ghost {
+  opacity: 0.42;
+}
+
+.plan-level-ghost__wall {
+  stroke: var(--rc-text-muted);
+  stroke-dasharray: 90 55;
+  vector-effect: non-scaling-stroke;
+}
+
+.plan-level-ghost__opening {
+  stroke: var(--rc-accent);
+  stroke-width: 10;
+  stroke-dasharray: 28 20;
+  vector-effect: non-scaling-stroke;
+}
+
+.plan-viewport__ghost-label {
+  align-self: center;
+  padding: 6px 10px;
+  border: 1px solid var(--rc-border);
+  border-radius: var(--rc-radius-sm);
+  color: var(--rc-text-muted);
+  background: var(--rc-surface);
+  font-size: 0.78rem;
+}
