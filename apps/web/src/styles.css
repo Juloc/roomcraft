@@ -460,40 +460,17 @@ body {
     min-height: 0;
   }
 
-  .properties {
-    position: fixed;
-    right: 0;
+  .editor-properties-sheet {
     bottom: calc(64px + env(safe-area-inset-bottom));
-    left: 0;
-    z-index: 35;
     max-height: min(72dvh, 680px);
-    padding: 0;
-    overflow: hidden;
-    border: 1px solid var(--rc-border);
-    border-bottom: 0;
-    border-radius: 18px 18px 0 0;
-    background: var(--rc-surface);
-    box-shadow: 0 -16px 40px rgb(0 0 0 / 0.24);
-    transform: translateY(calc(100% + 84px));
-    transition: transform 180ms ease;
+    padding-bottom: 0;
   }
 
-  .properties--open {
-    transform: translateY(0);
-  }
-
-  .properties__mobile-header {
-    align-items: center;
-    justify-content: space-between;
-    min-height: 50px;
-    padding: 0 var(--rc-space-2) 0 var(--rc-space-4);
-    border-bottom: 1px solid var(--rc-border);
-  }
-
-  .properties > .rc-panel {
-    max-height: calc(min(72dvh, 680px) - 50px);
-    overflow: auto;
+  .editor-properties-sheet .rc-sheet__content {
     overscroll-behavior: contain;
+  }
+
+  .editor-properties-sheet .rc-panel {
     border: 0;
     border-radius: 0;
   }
