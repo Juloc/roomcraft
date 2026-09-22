@@ -17,10 +17,12 @@ internal sealed class ProjectsDbContextModelSnapshot : ModelSnapshot
         project.HasKey(item => item.Id);
         project.Property(item => item.Id).HasMaxLength(128);
         project.Property(item => item.Name).HasMaxLength(256).IsRequired();
+        project.Property(item => item.OwnerId).HasMaxLength(64);
         project.Property(item => item.CurrentRevision).IsConcurrencyToken();
         project.Property(item => item.CreatedUtc);
         project.Property(item => item.UpdatedUtc);
         project.HasIndex(item => item.UpdatedUtc);
+        project.HasIndex(item => new { item.OwnerId, item.UpdatedUtc });
 
         var revision = modelBuilder.Entity<ProjectRevisionRecord>();
         revision.ToTable("project_revisions");
