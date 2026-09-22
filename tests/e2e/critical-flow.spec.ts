@@ -128,9 +128,18 @@ async function importAndCalibrateBlueprint(
     buffer: png,
   });
 
-  await expect(page.getByText("Selected blueprint", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Unlock blueprint" }).click();
-  await page.getByRole("button", { name: "Calibrate scale" }).click();
+  const blueprintPanel = page
+    .locator(".selection-properties")
+    .filter({ hasText: "Selected blueprint" });
+  await expect(
+    blueprintPanel.getByText("Selected blueprint", { exact: true }),
+  ).toBeVisible();
+  await blueprintPanel
+    .getByRole("button", { name: "Unlock blueprint", exact: true })
+    .click();
+  await blueprintPanel
+    .getByRole("button", { name: "Calibrate scale", exact: true })
+    .click();
 
   const box = await requireBox(plan);
   await plan.click({
