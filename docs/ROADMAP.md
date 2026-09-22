@@ -149,7 +149,7 @@ Definition of done:
 
 ---
 
-## Phase 4 — Levels and building shell 🚧
+## Phase 4 — Levels and building shell ✅
 
 Goal: support real multi-storey homes/apartments.
 
@@ -157,9 +157,9 @@ Goal: support real multi-storey homes/apartments.
 - level elevation ✅
 - default storey height ✅
 - floor thickness ✅
-- duplicate shell to new level 🚧
-- show lower/upper level as optional ghost 🚧
-- 3D all-level view
+- duplicate shell to new level ✅
+- show lower/upper level as optional ghost ✅
+- 3D all-level view ✅
 - stairs ◻ after basic multi-level behavior is stable
 
 ---
