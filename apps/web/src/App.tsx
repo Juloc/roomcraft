@@ -151,10 +151,14 @@ export function App() {
 
     const id = createEntityId("level");
     const levelNumber = document.levels.length + 1;
-    const nextElevationMm =
-      current.elevationMm +
-      current.defaultWallHeightMm +
-      current.floorThicknessMm;
+    const nextElevationMm = Math.max(
+      ...document.levels.map(
+        (candidate) =>
+          candidate.elevationMm +
+          candidate.defaultWallHeightMm +
+          candidate.floorThicknessMm,
+      ),
+    );
 
     session.execute(
       new AddLevelCommand({
