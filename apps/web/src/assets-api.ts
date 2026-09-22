@@ -53,12 +53,9 @@ export function assetContentUrl(assetId: string): string {
 async function readError(response: Response): Promise<string | null> {
   try {
     const value = (await response.json()) as unknown;
-    if (
-      value &&
-      typeof value === "object" &&
-      typeof (value as Record<string, unknown>).error === "string"
-    ) {
-      return (value as Record<string, string>).error;
+    if (value && typeof value === "object") {
+      const error = (value as Record<string, unknown>).error;
+      if (typeof error === "string") return error;
     }
   } catch {
     // The status code fallback below is enough when no JSON error exists.
