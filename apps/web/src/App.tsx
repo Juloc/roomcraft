@@ -234,9 +234,14 @@ function parametricFurnitureDefinition(
   };
 }
 
-export function App() {
+export interface EditorAppProps {
+  projectId: string;
+  onExit(): void;
+}
+
+export function EditorApp({ projectId, onExit }: EditorAppProps) {
   const session = useProjectSession(() =>
-    createEmptyProject(getOrCreateProjectId(), "My apartment"),
+    createEmptyProject(projectId, "My apartment"),
   );
   const { document, revision, saveState, saveError } = session;
 
