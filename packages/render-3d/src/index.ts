@@ -17,6 +17,12 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
+export type RoomSceneLevelScope = "active" | "all";
+
+export interface RoomSceneOptions {
+  levelScope?: RoomSceneLevelScope;
+}
+
 export class RoomSceneRenderer {
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(45, 1, 0.05, 250);
@@ -71,14 +77,21 @@ export class RoomSceneRenderer {
     this.resize();
   }
 
-  setDocument(document: ProjectDocument, levelId: string): void {
+  setDocument(
+    document: ProjectDocument,
+    levelId: string,
+    options: RoomSceneOptions = {},
+  ): void {
     this.assertActive();
-    const level = document.levels.find((candidate) => candidate.id === levelId);
-    if (!level) throw new Error(`Level ${levelId} does not exist.`);
+    const activeLevel = document.levels.find((candidate) => candidate.id === levelId);
+    if (!activeLevel) throw new Error(`Level ${levelId} does not exist.`);
+
+    const levels =
+      options.levelScope === "all" ? document.levels : [activeLevel];
 
     this.clearGenerated();
-    this.buildLevel(level);
-    this.frameLevel(level);
+    for (const level of levels) this.buildLevel(level);
+    this.frameLevels(levels);
     this.render();
   }
 
@@ -270,8 +283,9 @@ export class RoomSceneRenderer {
     this.generated.add(mesh);
   }
 
-  private frameLevel(level: Level): void {
-    if (level.vertices.length === 0) {
+  private frameLevels(levels: readonly Level[]): void {
+    const levelsWithVertices = levels.filter((level) => level.vertices.length > 0);
+    if (levelsWithVertices.length === 0) {
       this.controls.target.set(0, 0.8, 0);
       this.camera.position.set(5, 5, 5);
       this.controls.update();
@@ -280,22 +294,49 @@ export class RoomSceneRenderer {
 
     let minX = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
     let minZ = Number.POSITIVE_INFINITY;
     let maxZ = Number.NEGATIVE_INFINITY;
 
-    for (const vertex of level.vertices) {
-      minX = Math.min(minX, mmToMetres(vertex.xMm));
-      maxX = Math.max(maxX, mmToMetres(vertex.xMm));
-      minZ = Math.min(minZ, mmToMetres(vertex.yMm));
-      maxZ = Math.max(maxZ, mmToMetres(vertex.yMm));
+    for (const level of levelsWithVertices) {
+      minY = Math.min(minY, mmToMetres(level.elevationMm));
+      const maxWallHeightMm = Math.max(
+        level.defaultWallHeightMm,
+        ...level.walls.map((wall) => wall.heightMm ?? level.defaultWallHeightMm),
+      );
+      maxY = Math.max(
+        maxY,
+        mmToMetres(level.elevationMm + maxWallHeightMm),
+      );
+
+      for (const vertex of level.vertices) {
+        minX = Math.min(minX, mmToMetres(vertex.xMm));
+        maxX = Math.max(maxX, mmToMetres(vertex.xMm));
+        minZ = Math.min(minZ, mmToMetres(vertex.yMm));
+        maxZ = Math.max(maxZ, mmToMetres(vertex.yMm));
+      }
     }
 
-    const center = new Vector3((minX + maxX) / 2, mmToMetres(level.elevationMm) + 0.8, (minZ + maxZ) / 2);
-    const span = Math.max(maxX - minX, maxZ - minZ, 2);
-    const distance = Math.max(4.5, span * 1.45);
+    const center = new Vector3(
+      (minX + maxX) / 2,
+      (minY + maxY) / 2,
+      (minZ + maxZ) / 2,
+    );
+    const span = Math.max(
+      maxX - minX,
+      maxY - minY,
+      maxZ - minZ,
+      2,
+    );
+    const distance = Math.max(4.5, span * 1.55);
 
     this.controls.target.copy(center);
-    this.camera.position.set(center.x + distance, center.y + distance * 0.85, center.z + distance);
+    this.camera.position.set(
+      center.x + distance,
+      center.y + distance * 0.8,
+      center.z + distance,
+    );
     this.camera.lookAt(center);
     this.controls.update();
   }

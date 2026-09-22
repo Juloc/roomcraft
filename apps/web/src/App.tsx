@@ -33,7 +33,10 @@ import {
   type ViewportSizePx,
 } from "@roomcraft/editor-core";
 import { projectLevel2D } from "@roomcraft/render-2d";
-import { RoomSceneRenderer } from "@roomcraft/render-3d";
+import {
+  RoomSceneRenderer,
+  type RoomSceneLevelScope,
+} from "@roomcraft/render-3d";
 import {
   Button,
   LayerList,
@@ -72,6 +75,11 @@ const VIEW_OPTIONS = [
   { value: "3d", label: "3D" },
 ] as const;
 
+const THREE_LEVEL_OPTIONS = [
+  { value: "active", label: "Active level" },
+  { value: "all", label: "All levels" },
+] as const;
+
 const OPENING_PRESETS = {
   door: { widthMm: 900, heightMm: 2100, sillHeightMm: 0 } as const,
   window: { widthMm: 1200, heightMm: 1200, sillHeightMm: 900 } as const,
@@ -86,6 +94,8 @@ export function App() {
   const { document, revision, saveState, saveError } = session;
 
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
+  const [threeLevelScope, setThreeLevelScope] =
+    useState<RoomSceneLevelScope>("active");
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
   const [ghostMode, setGhostMode] = useState<GhostMode>("off");
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
@@ -636,6 +646,14 @@ export function App() {
             onChange={changeView}
             ariaLabel="Editor view"
           />
+          {viewMode === "3d" && document.levels.length > 1 ? (
+            <SegmentedControl
+              value={threeLevelScope}
+              options={THREE_LEVEL_OPTIONS}
+              onChange={setThreeLevelScope}
+              ariaLabel="3D level scope"
+            />
+          ) : null}
         </Toolbar>
       </header>
 
@@ -723,7 +741,12 @@ export function App() {
               onCancel={cancelTransient}
             />
           ) : (
-            <ThreeViewport document={document} levelId={levelId} selectedId={selectedWallId} />
+            <ThreeViewport
+              document={document}
+              levelId={levelId}
+              levelScope={threeLevelScope}
+              selectedId={selectedWallId}
+            />
           )}
         </section>
 
@@ -1716,10 +1739,16 @@ function PlanCanvas({
 interface ThreeViewportProps {
   document: ProjectDocument;
   levelId: string;
+  levelScope: RoomSceneLevelScope;
   selectedId: string | null;
 }
 
-function ThreeViewport({ document, levelId, selectedId }: ThreeViewportProps) {
+function ThreeViewport({
+  document,
+  levelId,
+  levelScope,
+  selectedId,
+}: ThreeViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<RoomSceneRenderer | null>(null);
 
@@ -1737,8 +1766,8 @@ function ThreeViewport({ document, levelId, selectedId }: ThreeViewportProps) {
   }, []);
 
   useEffect(() => {
-    rendererRef.current?.setDocument(document, levelId);
-  }, [document, levelId]);
+    rendererRef.current?.setDocument(document, levelId, { levelScope });
+  }, [document, levelId, levelScope]);
 
   useEffect(() => {
     rendererRef.current?.setSelection(selectedId);
