@@ -340,7 +340,9 @@ export function App() {
   }
 
   function moveBlueprint(blueprintId: string, xMm: number, yMm: number) {
-    const blueprint = level.blueprints.find((candidate) => candidate.id === blueprintId);
+    const blueprint = currentLevel()?.blueprints.find(
+      (candidate) => candidate.id === blueprintId,
+    );
     if (!blueprint || blueprint.locked) return;
 
     session.execute(
