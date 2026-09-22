@@ -18,7 +18,7 @@ test("sets up RoomCraft and protects the complete planning flow", async ({
   await page.getByRole("textbox", { name: "New project name", exact: true }).fill(PROJECT_NAME);
   await page.getByRole("button", { name: "New project", exact: true }).click();
 
-  await expect(page.locator(".save-state")).toHaveText("Saved");
+  await expect(page.locator(".desktop-header-actions .save-state")).toHaveText("Saved");
   const plan = page.getByRole("application", {
     name: "2D floor plan editor",
   });
@@ -93,7 +93,7 @@ test("sets up RoomCraft and protects the complete planning flow", async ({
   await shelves.fill("4");
   await shelves.press("Enter");
 
-  await expect(page.locator(".save-state")).toHaveText("Saved");
+  await expect(page.locator(".desktop-header-actions .save-state")).toHaveText("Saved");
 
   const persisted = await page.request.get(
     `/api/projects/${encodeURIComponent(projectId)}`,
@@ -120,7 +120,7 @@ test("sets up RoomCraft and protects the complete planning flow", async ({
     .filter({ hasText: PROJECT_NAME })
     .click();
 
-  await expect(page.locator(".save-state")).toHaveText("Saved");
+  await expect(page.locator(".desktop-header-actions .save-state")).toHaveText("Saved");
   await expect(statValue(page, "Rooms")).toHaveText("1");
   await expect(statValue(page, "Walls")).toHaveText("4");
   await expect(statValue(page, "Openings")).toHaveText("1");
