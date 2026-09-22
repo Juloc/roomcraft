@@ -14,20 +14,12 @@ export interface ImageDimensions {
   heightPx: number;
 }
 
-export async function uploadBlueprintAsset(file: File): Promise<UploadedAsset> {
-  const form = new FormData();
-  form.set("file", file);
+export function uploadBlueprintAsset(file: File): Promise<UploadedAsset> {
+  return uploadAsset(file, "/api/assets/blueprints", "Blueprint");
+}
 
-  const response = await fetch("/api/assets/blueprints", {
-    method: "POST",
-    body: form,
-  });
-  if (!response.ok) {
-    const message = await readError(response);
-    throw new Error(message ?? `Blueprint upload failed with HTTP ${response.status}.`);
-  }
-
-  return parseAsset(await response.json());
+export function uploadModelAsset(file: File): Promise<UploadedAsset> {
+  return uploadAsset(file, "/api/assets/models", "Model");
 }
 
 export async function readImageDimensions(file: File): Promise<ImageDimensions> {
@@ -48,6 +40,26 @@ export async function readImageDimensions(file: File): Promise<ImageDimensions> 
 
 export function assetContentUrl(assetId: string): string {
   return `/api/assets/${encodeURIComponent(assetId)}/content`;
+}
+
+async function uploadAsset(
+  file: File,
+  endpoint: string,
+  label: string,
+): Promise<UploadedAsset> {
+  const form = new FormData();
+  form.set("file", file);
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    const message = await readError(response);
+    throw new Error(message ?? `${label} upload failed with HTTP ${response.status}.`);
+  }
+
+  return parseAsset(await response.json());
 }
 
 async function readError(response: Response): Promise<string | null> {
