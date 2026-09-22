@@ -55,7 +55,45 @@ export function validateProjectDocument(document: ProjectDocument): void {
       validateOpening(level, wall, opening, vertexById);
     }
 
-    for (const blueprint of level.blueprints) {
+    const objectIds = new Set<string>();
+    for (const object of level.objects) {
+      if (!object.id || objectIds.has(object.id)) {
+        throw new Error(
+          `Object id ${object.id || "(empty)"} must be unique and non-empty on level ${level.id}.`,
+        );
+      }
+      objectIds.add(object.id);
+      if (!object.assetId) {
+        throw new Error(`Object ${object.id} assetId is required.`);
+      }
+
+      for (const [field, value] of [
+        ["xMm", object.xMm],
+        ["yMm", object.yMm],
+        ["zMm", object.zMm],
+        ["widthMm", object.widthMm],
+        ["depthMm", object.depthMm],
+        ["heightMm", object.heightMm],
+      ] as const) {
+        assertIntegerMillimetres(value, `object.${field}`);
+      }
+
+      if (object.zMm < 0) {
+        throw new Error(`Object ${object.id} zMm cannot be negative.`);
+      }
+      if (
+        object.widthMm <= 0 ||
+        object.depthMm <= 0 ||
+        object.heightMm <= 0
+      ) {
+        throw new Error(`Object ${object.id} dimensions must be positive.`);
+      }
+      if (!Number.isFinite(object.rotationDeg)) {
+        throw new Error(`Object ${object.id} rotationDeg must be finite.`);
+      }
+    }
+
+        for (const blueprint of level.blueprints) {
       if (!blueprint.id || !blueprint.assetId) {
         throw new Error("Blueprint id and assetId are required.");
       }
