@@ -1,6 +1,12 @@
 name: Release
 
 on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - docker/**
+      - .github/workflows/release.yml
+      - src/server/RoomCraft.Host/**
   push:
     branches: [main]
   workflow_dispatch:
@@ -20,7 +26,7 @@ env:
 
 jobs:
   release:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -58,14 +64,17 @@ jobs:
           curl --fail --silent http://127.0.0.1:18080/ | grep -q '<div id="root"'
 
       - name: Login to GHCR
+        if: github.event_name != 'pull_request'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Push image
+        if: github.event_name != 'pull_request'
         run: |
           docker push "$IMAGE_NAME:$VERSION"
           docker push "$IMAGE_NAME:edge"
 
       - name: Create GitHub release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

@@ -4,7 +4,7 @@ COPY . .
 RUN npm install
 RUN npm run build
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0-bookworm-slim AS server-build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS server-build
 WORKDIR /src
 COPY . .
 COPY --from=web-build /src/apps/web/dist ./src/server/RoomCraft.Host/wwwroot
