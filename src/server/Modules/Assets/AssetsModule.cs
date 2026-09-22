@@ -333,7 +333,9 @@ public static class AssetsModule
                 !asset.TryGetProperty("version", out var assetVersion) ||
                 assetVersion.ValueKind != JsonValueKind.String ||
                 assetVersion.GetString() is not { } value ||
-                !value.StartsWith("2.", StringComparison.Ordinal))
+                !value.StartsWith("2.", StringComparison.Ordinal) ||
+                ContainsExternalUris(json.RootElement, "buffers") ||
+                ContainsExternalUris(json.RootElement, "images"))
             {
                 return null;
             }
@@ -344,6 +346,33 @@ public static class AssetsModule
         }
 
         return "model/gltf-binary";
+    }
+
+    private static bool ContainsExternalUris(JsonElement root, string collectionName)
+    {
+        if (!root.TryGetProperty(collectionName, out var collection) ||
+            collection.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (var item in collection.EnumerateArray())
+        {
+            if (!item.TryGetProperty("uri", out var uriElement) ||
+                uriElement.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var uri = uriElement.GetString();
+            if (!string.IsNullOrWhiteSpace(uri) &&
+                !uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static async Task<int> ReadAtMostAsync(
