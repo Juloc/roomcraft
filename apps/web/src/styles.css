@@ -437,3 +437,11 @@ body {
   font-size: 0.82rem;
   line-height: 1.45;
 }
+
+.plan-blueprint {
+  cursor: move;
+}
+
+.plan-blueprint--locked {
+  cursor: default;
+}
