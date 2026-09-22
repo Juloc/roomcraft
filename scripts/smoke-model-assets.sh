@@ -62,6 +62,14 @@ if ! curl --fail --silent "$API_URL/api/health" >/dev/null; then
   exit 1
 fi
 
+COOKIE_JAR="${RUNNER_TEMP:-/tmp}/roomcraft-auth-${BASHPID}.txt"
+# shellcheck source=scripts/smoke-auth.sh
+source scripts/smoke-auth.sh
+roomcraft_authenticate "$API_URL" "$COOKIE_JAR"
+curl() {
+  command curl --cookie "$COOKIE_JAR" "$@"
+}
+
 UPLOAD_RESPONSE=$(curl --fail --silent --show-error   -X POST   -F "file=@$MODEL_FILE;type=model/gltf-binary"   "$API_URL/api/assets/models")
 
 ASSET_ID=$(python3 - "$UPLOAD_RESPONSE" <<'PY'
