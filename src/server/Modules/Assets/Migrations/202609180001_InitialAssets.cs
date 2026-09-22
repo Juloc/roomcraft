@@ -5,7 +5,7 @@ namespace RoomCraft.Modules.Assets.Migrations;
 
 [DbContext(typeof(AssetsDbContext))]
 [Migration("202609180001_InitialAssets")]
-internal sealed class InitialAssets : Migration
+public sealed class InitialAssets : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
