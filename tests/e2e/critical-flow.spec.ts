@@ -149,7 +149,9 @@ async function importAndCalibrateBlueprint(
     position: { x: box.width * 0.55, y: box.height * 0.72 },
   });
 
-  const knownDistance = page.getByLabel("Known distance", { exact: true });
+  const knownDistance = blueprintPanel.getByRole("textbox", {
+    name: /Known distance/,
+  });
   await expect(knownDistance).toBeVisible();
   await knownDistance.fill("3000 mm");
   await knownDistance.press("Enter");
