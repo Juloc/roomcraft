@@ -114,4 +114,38 @@ if [[ "$WRONG_LENGTH_STATUS" != "400" ]]; then
   exit 1
 fi
 
+python3 - "$WORK_DIR/external.glb" <<'PY'
+import json
+import struct
+import sys
+
+payload = {
+    "asset": {"version": "2.0"},
+    "buffers": [{"uri": "https://example.invalid/model.bin", "byteLength": 4}],
+}
+json_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+json_bytes += b" " * ((4 - len(json_bytes) % 4) % 4)
+length = 12 + 8 + len(json_bytes)
+with open(sys.argv[1], "wb") as handle:
+    handle.write(b"glTF")
+    handle.write(struct.pack("<I", 2))
+    handle.write(struct.pack("<I", length))
+    handle.write(struct.pack("<I", len(json_bytes)))
+    handle.write(struct.pack("<I", 0x4E4F534A))
+    handle.write(json_bytes)
+PY
+
+EXTERNAL_STATUS=$(curl --silent --show-error \
+  -o "$WORK_DIR/external-response.json" \
+  -w "%{http_code}" \
+  -X POST \
+  -F "file=@$WORK_DIR/external.glb;type=model/gltf-binary" \
+  "$API_URL/api/assets/models")
+
+if [[ "$EXTERNAL_STATUS" != "400" ]]; then
+  cat "$WORK_DIR/external-response.json"
+  printf 'Expected external-resource GLB to return 400, got %s\n' "$EXTERNAL_STATUS" >&2
+  exit 1
+fi
+
 printf 'GLB model asset smoke test passed.\n'
