@@ -8,6 +8,7 @@ describe("project document validation", () => {
     expect(() => validateProjectDocument(document)).not.toThrow();
     expect(document.levels).toHaveLength(1);
     expect(document.levels[0]?.defaultWallHeightMm).toBe(2500);
+    expect(document.levels[0]?.floorThicknessMm).toBe(200);
   });
 
   it("rejects fractional millimetre coordinates", () => {
@@ -240,6 +241,52 @@ describe("project document validation", () => {
 
     expect(() => validateProjectDocument(document)).toThrow(
       "crop must stay inside the source image",
+    );
+  });
+
+  it("migrates a v3 project to v4 with default floor thickness", () => {
+    const legacy = {
+      schemaVersion: 3,
+      id: "project_v3",
+      name: "Levels V3",
+      settings: {
+        unitSystem: "metric",
+        gridSizeMm: 100,
+        angleSnapDeg: 15,
+      },
+      levels: [
+        {
+          id: "level_ground",
+          name: "Ground floor",
+          elevationMm: 0,
+          defaultWallHeightMm: 2500,
+          vertices: [],
+          walls: [],
+          openings: [],
+          objects: [],
+          blueprints: [],
+        },
+      ],
+    } as const;
+
+    const migrated = parseProjectDocument(legacy);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.levels[0]?.floorThicknessMm).toBe(200);
+    expect("floorThicknessMm" in legacy.levels[0]).toBe(false);
+  });
+
+  it("rejects duplicate level ids", () => {
+    const document = createEmptyProject("project_levels");
+    const first = document.levels[0];
+    if (!first) throw new Error("Test fixture must contain a level.");
+
+    document.levels.push({
+      ...first,
+      name: "Duplicate",
+    });
+
+    expect(() => validateProjectDocument(document)).toThrow(
+      "must be unique and non-empty",
     );
   });
 
