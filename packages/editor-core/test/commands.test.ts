@@ -1,6 +1,6 @@
 import { createEmptyProject } from "@roomcraft/document";
 import { describe, expect, it } from "vitest";
-import { AddBlueprintCommand, AddLevelCommand, AddOpeningCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, MoveBlueprintLayerCommand, RemoveBlueprintCommand, RemoveLevelCommand, SetWallLengthCommand, UpdateLevelCommand } from "../src";
+import { AddBlueprintCommand, AddLevelCommand, AddObjectCommand, AddOpeningCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, MoveBlueprintLayerCommand, RemoveBlueprintCommand, RemoveLevelCommand, RemoveObjectCommand, SetWallLengthCommand, UpdateLevelCommand, UpdateObjectCommand } from "../src";
 
 describe("CommandHistory", () => {
   it("adds a wall through a command and restores it through undo/redo", () => {
@@ -373,6 +373,86 @@ describe("CommandHistory", () => {
       "blueprint_b",
       "blueprint_c",
     ]);
+  });
+
+  it("adds, updates and removes an object through undoable commands", () => {
+    const history = new CommandHistory(createEmptyProject("project_objects"));
+    const object = {
+      id: "object_1",
+      assetId: "builtin:table",
+      xMm: 2000,
+      yMm: 1500,
+      zMm: 0,
+      rotationDeg: 0,
+      widthMm: 1600,
+      depthMm: 900,
+      heightMm: 760,
+      locked: false,
+    };
+
+    history.execute(
+      new AddObjectCommand({
+        levelId: "level_ground",
+        object,
+      }),
+    );
+    expect(history.document.levels[0]?.objects[0]).toEqual(object);
+
+    history.execute(
+      new UpdateObjectCommand({
+        levelId: "level_ground",
+        object: {
+          ...object,
+          xMm: 2500,
+          rotationDeg: 90,
+          widthMm: 1800,
+        },
+      }),
+    );
+    expect(history.document.levels[0]?.objects[0]).toMatchObject({
+      xMm: 2500,
+      rotationDeg: 90,
+      widthMm: 1800,
+    });
+
+    history.execute(new RemoveObjectCommand("level_ground", "object_1"));
+    expect(history.document.levels[0]?.objects).toEqual([]);
+
+    history.undo();
+    expect(history.document.levels[0]?.objects[0]).toMatchObject({
+      id: "object_1",
+      xMm: 2500,
+      rotationDeg: 90,
+    });
+
+    history.undo();
+    expect(history.document.levels[0]?.objects[0]).toEqual(object);
+  });
+
+  it("rejects changing an object's asset id through update", () => {
+    const history = new CommandHistory(createEmptyProject("project_objects"));
+    const object = {
+      id: "object_1",
+      assetId: "builtin:box",
+      xMm: 0,
+      yMm: 0,
+      zMm: 0,
+      rotationDeg: 0,
+      widthMm: 800,
+      depthMm: 600,
+      heightMm: 800,
+      locked: false,
+    };
+    history.execute(new AddObjectCommand({ levelId: "level_ground", object }));
+
+    expect(() =>
+      history.execute(
+        new UpdateObjectCommand({
+          levelId: "level_ground",
+          object: { ...object, assetId: "builtin:bed" },
+        }),
+      ),
+    ).toThrow("assetId is immutable");
   });
 
   it("adds, edits and removes levels through undoable commands", () => {
