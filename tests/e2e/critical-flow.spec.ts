@@ -116,7 +116,7 @@ async function importAndCalibrateBlueprint(
   plan: ReturnType<Page["getByRole"]>,
 ) {
   const png = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=",
+    "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGUlEQVR4nGP88OEDAymAiSTVoxpGNQwpDQDL6ALwILfzLgAAAABJRU5ErkJggg==",
     "base64",
   );
   const blueprintInput = page.locator(
