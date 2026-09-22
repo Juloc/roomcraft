@@ -79,7 +79,10 @@ import {
 } from "@roomcraft/render-3d";
 import {
   Button,
+  Icon,
+  IconButton,
   LayerList,
+  Menu,
   LengthField,
   NumberField,
   Panel,
@@ -252,6 +255,7 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
   const [ghostMode, setGhostMode] = useState<GhostMode>("off");
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
+  const [mobilePropertiesOpen, setMobilePropertiesOpen] = useState(false);
   const [activeFurnitureAssetId, setActiveFurnitureAssetId] =
     useState<string>("builtin:box");
   const [catalogQuery, setCatalogQuery] = useState("");
@@ -284,6 +288,10 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
   const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
+
+  useEffect(() => {
+    if (selection.primary) setMobilePropertiesOpen(true);
+  }, [selection.primary]);
 
   useEffect(() => {
     const usedCatalogAssets = new Set(
@@ -1429,17 +1437,18 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     <div className="app-shell">
       <header className="app-header">
         <div className="app-brand">
-          <strong>RoomCraft</strong>
-          <span>{document.name}</span>
+          <div className="mobile-only">
+            <IconButton icon="back" label="Back to projects" variant="ghost" onClick={onExit} />
+          </div>
+          <div className="app-brand__text">
+            <strong>RoomCraft</strong>
+            <span>{document.name}</span>
+          </div>
         </div>
 
-        <Toolbar>
-          <Button variant="ghost" onClick={undo} disabled={!session.canUndo}>
-            Undo
-          </Button>
-          <Button variant="ghost" onClick={redo} disabled={!session.canRedo}>
-            Redo
-          </Button>
+        <Toolbar className="desktop-header-actions">
+          <Button variant="ghost" onClick={undo} disabled={!session.canUndo}>Undo</Button>
+          <Button variant="ghost" onClick={redo} disabled={!session.canRedo}>Redo</Button>
           <Button
             variant="primary"
             onClick={() => void session.saveNow()}
@@ -1447,78 +1456,60 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
           >
             {saveState === "saving" ? "Saving…" : "Save"}
           </Button>
-          <Button variant="ghost" onClick={exportNativeProject}>
-            Export project
-          </Button>
-          <Button variant="ghost" onClick={() => projectImportRef.current?.click()}>
-            Import project
-          </Button>
-          <input
-            ref={projectImportRef}
-            className="visually-hidden"
-            type="file"
-            accept=".roomcraft,application/json"
-            tabIndex={-1}
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0];
-              event.currentTarget.value = "";
-              if (file) void importNativeProject(file);
-            }}
-          />
-          <Button variant="ghost" onClick={exportSvgFloorPlan}>
-            Export SVG
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={rasterExportState === "exporting"}
-            onClick={() => void exportRasterFloorPlan("png")}
-          >
-            Export PNG
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={rasterExportState === "exporting"}
-            onClick={() => void exportRasterFloorPlan("jpeg")}
-          >
-            Export JPEG
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={glbExportState === "exporting"}
-            onClick={() => void exportGlbProject()}
-          >
+          <Button variant="ghost" onClick={exportNativeProject}>Export project</Button>
+          <Button variant="ghost" onClick={() => projectImportRef.current?.click()}>Import project</Button>
+          <Button variant="ghost" onClick={exportSvgFloorPlan}>Export SVG</Button>
+          <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("png")}>Export PNG</Button>
+          <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("jpeg")}>Export JPEG</Button>
+          <Button variant="ghost" disabled={glbExportState === "exporting"} onClick={() => void exportGlbProject()}>
             {glbExportState === "exporting" ? "Exporting GLB…" : "Export GLB"}
           </Button>
           <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
             {saveStateLabel(saveState)}
           </span>
-          <SegmentedControl
-            value={viewMode}
-            options={VIEW_OPTIONS}
-            onChange={changeView}
-            ariaLabel="Editor view"
-          />
+          <SegmentedControl value={viewMode} options={VIEW_OPTIONS} onChange={changeView} ariaLabel="Editor view" />
           {viewMode === "3d" ? (
-            <Button
-              variant={showCeilings ? "primary" : "ghost"}
-              onClick={() => setShowCeilings((current) => !current)}
-              title="Show or hide derived room ceilings"
-            >
-              Ceilings
-            </Button>
+            <Button variant={showCeilings ? "primary" : "ghost"} onClick={() => setShowCeilings((current) => !current)}>Ceilings</Button>
           ) : null}
           {viewMode === "3d" && document.levels.length > 1 ? (
-            <SegmentedControl
-              value={threeLevelScope}
-              options={THREE_LEVEL_OPTIONS}
-              onChange={setThreeLevelScope}
-              ariaLabel="3D level scope"
-            />
+            <SegmentedControl value={threeLevelScope} options={THREE_LEVEL_OPTIONS} onChange={setThreeLevelScope} ariaLabel="3D level scope" />
           ) : null}
         </Toolbar>
-      </header>
 
-      <main className="editor-layout">
+        <div className="mobile-header-actions mobile-only">
+          <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
+            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "•"}
+          </span>
+          <IconButton icon="undo" label="Undo" variant="ghost" onClick={undo} disabled={!session.canUndo} />
+          <IconButton icon="redo" label="Redo" variant="ghost" onClick={redo} disabled={!session.canRedo} />
+          <Menu label="Project and view actions">
+            <Button variant="ghost" onClick={() => changeView("2d")}>2D view</Button>
+            <Button variant="ghost" onClick={() => changeView("3d")}>3D view</Button>
+            <Button variant="ghost" onClick={() => setMobilePropertiesOpen(true)}>Properties</Button>
+            <Button variant="ghost" disabled={blueprintImportState === "uploading"} onClick={() => blueprintFileRef.current?.click()}>
+              <Icon name="blueprint" /> Blueprint
+            </Button>
+            <Button variant="ghost" onClick={exportNativeProject}>Export project</Button>
+            <Button variant="ghost" onClick={() => projectImportRef.current?.click()}>Import project</Button>
+            <Button variant="ghost" onClick={exportSvgFloorPlan}>Export SVG</Button>
+            <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("png")}>Export PNG</Button>
+            <Button variant="ghost" disabled={glbExportState === "exporting"} onClick={() => void exportGlbProject()}>Export GLB</Button>
+          </Menu>
+        </div>
+
+        <input
+          ref={projectImportRef}
+          className="visually-hidden"
+          type="file"
+          accept=".roomcraft,application/json"
+          tabIndex={-1}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file) void importNativeProject(file);
+          }}
+        />
+      </header>      <main className="editor-layout">
         <aside className="tool-rail" aria-label="Drawing tools">
           <Button
             variant={activeTool === "select" ? "primary" : "ghost"}
@@ -1624,7 +1615,11 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
           )}
         </section>
 
-        <aside className="properties">
+        <aside className={`properties${mobilePropertiesOpen ? " properties--open" : ""}`}>
+          <div className="properties__mobile-header mobile-only">
+            <strong>Properties</strong>
+            <IconButton icon="close" label="Close properties" variant="ghost" onClick={() => setMobilePropertiesOpen(false)} />
+          </div>
           <Panel>
             <div className="properties__content">
               <div className="level-editor">
@@ -2548,6 +2543,31 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
           </Panel>
         </aside>
       </main>
+
+      <nav className="mobile-tool-bar mobile-only" aria-label="Editor tools">
+        <button type="button" className={activeTool === "select" ? "mobile-tool mobile-tool--active" : "mobile-tool"} onClick={() => selectTool("select")}>
+          <Icon name="select" /><span>Select</span>
+        </button>
+        <button type="button" className={activeTool === "wall" ? "mobile-tool mobile-tool--active" : "mobile-tool"} onClick={() => selectTool("wall")}>
+          <Icon name="wall" /><span>Wall</span>
+        </button>
+        <button type="button" className={activeTool === "door" ? "mobile-tool mobile-tool--active" : "mobile-tool"} onClick={() => selectTool("door")}>
+          <Icon name="opening" /><span>Door</span>
+        </button>
+        <button type="button" className={activeTool === "window" ? "mobile-tool mobile-tool--active" : "mobile-tool"} onClick={() => selectTool("window")}>
+          <Icon name="opening" /><span>Window</span>
+        </button>
+        <button
+          type="button"
+          className={activeTool === "furniture" ? "mobile-tool mobile-tool--active" : "mobile-tool"}
+          onClick={() => {
+            openFurnitureTool();
+            setMobilePropertiesOpen(true);
+          }}
+        >
+          <Icon name="furniture" /><span>Furniture</span>
+        </button>
+      </nav>
     </div>
   );
 }
