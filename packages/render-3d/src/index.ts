@@ -3,12 +3,17 @@ import type {
   Level,
   MaterialDefinition,
   ObjectInstance,
+  ParametricCabinetDefinition,
   Opening,
   ProjectDocument,
   Vertex,
   Wall,
 } from "@roomcraft/document";
 import { analyzePlanarFaces, mmToMetres } from "@roomcraft/geometry";
+import {
+  deriveCabinetParts,
+  parseParametricAssetId,
+} from "@roomcraft/parametric";
 import {
   AmbientLight,
   BoxGeometry,
@@ -85,6 +90,7 @@ export class RoomSceneRenderer {
   private readonly modelPrototypePromises = new Map<string, Promise<Group>>();
   private readonly modelPrototypes = new Map<string, Group>();
   private readonly materialDefinitionById = new Map<string, MaterialDefinition>();
+  private readonly parametricAssetById = new Map<string, ParametricCabinetDefinition>();
   private readonly projectMaterialCache = new Map<string, MeshStandardMaterial>();
   private selectionHelper: BoxHelper | null = null;
   private showCeilings = false;
@@ -140,6 +146,10 @@ export class RoomSceneRenderer {
     this.renderGeneration += 1;
     this.showCeilings = options.showCeilings ?? false;
     this.setMaterialDefinitions(document.materials);
+    this.parametricAssetById.clear();
+    for (const definition of document.parametricAssets) {
+      this.parametricAssetById.set(definition.id, definition);
+    }
     this.modelAssetsByObjectAssetId.clear();
     for (const asset of options.modelAssets ?? []) {
       this.modelAssetsByObjectAssetId.set(asset.objectAssetId, asset);
@@ -181,6 +191,7 @@ export class RoomSceneRenderer {
     for (const material of this.projectMaterialCache.values()) material.dispose();
     this.projectMaterialCache.clear();
     this.materialDefinitionById.clear();
+    this.parametricAssetById.clear();
     this.wallMaterial.dispose();
     this.selectedWallMaterial.dispose();
     this.defaultSurfaceMaterial.dispose();
@@ -433,6 +444,18 @@ export class RoomSceneRenderer {
   }
 
   private buildObject(level: Level, object: ObjectInstance): void {
+    const parametricDefinitionId = parseParametricAssetId(object.assetId);
+    if (parametricDefinitionId) {
+      const definition = this.parametricAssetById.get(parametricDefinitionId);
+      if (!definition) {
+        throw new Error(
+          `Object ${object.id} references missing parametric asset ${parametricDefinitionId}.`,
+        );
+      }
+      this.buildParametricCabinet(level, object, definition);
+      return;
+    }
+
     const runtimeAsset = this.modelAssetsByObjectAssetId.get(object.assetId);
     if (runtimeAsset) {
       this.buildExternalObject(level, object, runtimeAsset);
@@ -444,6 +467,38 @@ export class RoomSceneRenderer {
 
     const group = this.createObjectGroup(level, object);
     this.addPrimitiveParts(group, object, primitive);
+    this.generated.add(group);
+  }
+
+  private buildParametricCabinet(
+    level: Level,
+    object: ObjectInstance,
+    definition: ParametricCabinetDefinition,
+  ): void {
+    const group = this.createObjectGroup(level, object);
+    group.userData.roomcraftParametricAssetId = definition.id;
+
+    const parts = deriveCabinetParts(definition, {
+      widthMm: object.widthMm,
+      depthMm: object.depthMm,
+      heightMm: object.heightMm,
+    });
+
+    for (const part of parts) {
+      this.addObjectPart(
+        group,
+        object,
+        part.widthMm,
+        part.heightMm,
+        part.depthMm,
+        part.xMm,
+        part.yMm,
+        part.zMm,
+        part.id,
+        part.materialId,
+      );
+    }
+
     this.generated.add(group);
   }
 
@@ -638,24 +693,39 @@ export class RoomSceneRenderer {
     yMm: number,
     zMm: number,
     part: string,
+    materialId: string | null = null,
   ): void {
     const geometry = new BoxGeometry(
       mmToMetres(Math.max(1, widthMm)),
       mmToMetres(Math.max(1, heightMm)),
       mmToMetres(Math.max(1, depthMm)),
     );
-    const mesh = new Mesh(geometry, this.selectedId === object.id ? this.selectedObjectMaterial : this.objectMaterial);
+    const mesh = new Mesh(
+      geometry,
+      this.selectedId === object.id
+        ? this.selectedObjectMaterial
+        : this.materialForId(materialId, this.objectMaterial),
+    );
     mesh.position.set(mmToMetres(xMm), mmToMetres(yMm), mmToMetres(zMm));
     mesh.userData.roomcraftId = object.id;
     mesh.userData.roomcraftKind = "object";
     mesh.userData.roomcraftPart = part;
+    mesh.userData.roomcraftParametricMaterialId = materialId;
     group.add(mesh);
   }
 
   private materialForMesh(mesh: Mesh): Material | Material[] {
     const selected = mesh.userData.roomcraftId === this.selectedId;
     if (mesh.userData.roomcraftKind === "object") {
-      return selected ? this.selectedObjectMaterial : this.objectMaterial;
+      return selected
+        ? this.selectedObjectMaterial
+        : this.materialForId(
+            (mesh.userData.roomcraftParametricMaterialId as
+              | string
+              | null
+              | undefined) ?? null,
+            this.objectMaterial,
+          );
     }
     if (mesh.userData.roomcraftKind === "room-surface") {
       return selected
