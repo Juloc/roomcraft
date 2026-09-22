@@ -126,16 +126,17 @@ Next:
 
 ---
 
-## Phase 3 — Blueprint workflow ⬜
+## Phase 3 — Blueprint workflow 🚧
 
 Goal: let users trace an existing plan without CAD knowledge.
 
-- image/PDF-page import through asset abstraction
+- image import through asset abstraction 🚧
+- PDF-page import ◻
 - blueprint opacity
 - rotate/crop
-- calibration by drawing a line over a known distance
-- lock blueprint layer
-- hide/show
+- calibration by drawing a line over a known distance 🚧
+- lock blueprint layer 🚧
+- hide/show 🚧
 - per-level blueprint
 - preserve source asset separately from editor geometry
 

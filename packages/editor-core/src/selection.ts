@@ -1,6 +1,6 @@
 import type { EntityId } from "@roomcraft/document";
 
-export type SelectionKind = "wall" | "opening" | "room" | "object";
+export type SelectionKind = "wall" | "opening" | "room" | "object" | "blueprint";
 
 export interface SelectionTarget {
   kind: SelectionKind;

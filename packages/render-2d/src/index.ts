@@ -35,8 +35,22 @@ export interface ProjectedRoom2D {
   areaMm2: number;
 }
 
+export interface ProjectedBlueprint2D {
+  id: EntityId;
+  assetId: EntityId;
+  xMm: number;
+  yMm: number;
+  widthMm: number;
+  heightMm: number;
+  rotationDeg: number;
+  opacity: number;
+  locked: boolean;
+  visible: boolean;
+}
+
 export interface PlanProjection2D {
   levelId: EntityId;
+  blueprints: ProjectedBlueprint2D[];
   walls: ProjectedWall2D[];
   openings: ProjectedOpening2D[];
   rooms: ProjectedRoom2D[];
@@ -113,8 +127,25 @@ export function projectLevel2D(document: ProjectDocument, levelId: EntityId): Pl
       }) satisfies ProjectedRoom2D,
   );
 
+  const blueprints = level.blueprints.map(
+    (blueprint) =>
+      ({
+        id: blueprint.id,
+        assetId: blueprint.assetId,
+        xMm: blueprint.originXmm,
+        yMm: blueprint.originYmm,
+        widthMm: blueprint.sourceWidthPx * blueprint.millimetresPerPixel,
+        heightMm: blueprint.sourceHeightPx * blueprint.millimetresPerPixel,
+        rotationDeg: blueprint.rotationDeg,
+        opacity: blueprint.opacity,
+        locked: blueprint.locked,
+        visible: blueprint.visible,
+      }) satisfies ProjectedBlueprint2D,
+  );
+
   return {
     levelId,
+    blueprints,
     walls,
     openings,
     rooms,

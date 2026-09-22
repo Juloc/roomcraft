@@ -1,4 +1,4 @@
-import { validateProjectDocument, type ProjectDocument } from "@roomcraft/document";
+import { parseProjectDocument, type ProjectDocument } from "@roomcraft/document";
 
 export interface PersistedProject {
   id: string;
@@ -59,8 +59,7 @@ export class ProjectConflictError extends Error {}
 function parseProjectResponse(value: unknown): PersistedProject {
   if (!value || typeof value !== "object") throw new Error("Invalid project response.");
   const response = value as Record<string, unknown>;
-  const document = response.document as ProjectDocument;
-  validateProjectDocument(document);
+  const document = parseProjectDocument(response.document);
 
   if (typeof response.id !== "string" || response.id !== document.id) {
     throw new Error("Project response id does not match its document.");

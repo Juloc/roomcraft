@@ -1,12 +1,15 @@
-import type {
-  EntityId,
-  Level,
-  Opening,
-  ProjectDocument,
-  Vertex,
-  Wall,
+import {
+  validateProjectDocument,
+  type BlueprintReference,
+  type EntityId,
+  type Level,
+  type Opening,
+  type ProjectDocument,
+  type Vertex,
+  type Wall,
 } from "@roomcraft/document";
-import { distanceMm } from "@roomcraft/geometry";
+import { distanceMm, type Point2Mm } from "@roomcraft/geometry";
+import { calibrateBlueprintReference } from "./blueprints";
 
 export interface CommandResult {
   document: ProjectDocument;
@@ -228,6 +231,140 @@ export class SetWallLengthCommand implements EditorCommand {
       xMm,
       yMm,
     }).execute(document);
+  }
+}
+
+export interface AddBlueprintInput {
+  levelId: EntityId;
+  blueprint: BlueprintReference;
+}
+
+export class AddBlueprintCommand implements EditorCommand {
+  readonly type = "AddBlueprint";
+
+  constructor(private readonly input: AddBlueprintInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    if (level.blueprints.some((candidate) => candidate.id === this.input.blueprint.id)) {
+      throw new Error(`Blueprint ${this.input.blueprint.id} already exists.`);
+    }
+
+    const nextLevel: Level = {
+      ...level,
+      blueprints: [...level.blueprints, this.input.blueprint],
+    };
+    const nextDocument = replaceLevel(document, nextLevel);
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new RemoveBlueprintCommand(this.input.levelId, this.input.blueprint),
+    };
+  }
+}
+
+export interface UpdateBlueprintInput {
+  levelId: EntityId;
+  blueprint: BlueprintReference;
+}
+
+export class UpdateBlueprintCommand implements EditorCommand {
+  readonly type = "UpdateBlueprint";
+
+  constructor(private readonly input: UpdateBlueprintInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    const previous = level.blueprints.find(
+      (candidate) => candidate.id === this.input.blueprint.id,
+    );
+    if (!previous) throw new Error(`Blueprint ${this.input.blueprint.id} does not exist.`);
+    if (previous.assetId !== this.input.blueprint.assetId) {
+      throw new Error("Blueprint assetId is immutable. Add a new blueprint instead.");
+    }
+
+    const nextLevel: Level = {
+      ...level,
+      blueprints: level.blueprints.map((candidate) =>
+        candidate.id === this.input.blueprint.id ? this.input.blueprint : candidate,
+      ),
+    };
+    const nextDocument = replaceLevel(document, nextLevel);
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new UpdateBlueprintCommand({
+        levelId: this.input.levelId,
+        blueprint: previous,
+      }),
+    };
+  }
+}
+
+export interface CalibrateBlueprintInput {
+  levelId: EntityId;
+  blueprintId: EntityId;
+  firstPlanPoint: Point2Mm;
+  secondPlanPoint: Point2Mm;
+  knownLengthMm: number;
+}
+
+export class CalibrateBlueprintCommand implements EditorCommand {
+  readonly type = "CalibrateBlueprint";
+
+  constructor(private readonly input: CalibrateBlueprintInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    const blueprint = level.blueprints.find(
+      (candidate) => candidate.id === this.input.blueprintId,
+    );
+    if (!blueprint) throw new Error(`Blueprint ${this.input.blueprintId} does not exist.`);
+
+    const calibrated = calibrateBlueprintReference(
+      blueprint,
+      this.input.firstPlanPoint,
+      this.input.secondPlanPoint,
+      this.input.knownLengthMm,
+    );
+
+    return new UpdateBlueprintCommand({
+      levelId: this.input.levelId,
+      blueprint: calibrated,
+    }).execute(document);
+  }
+}
+
+class RemoveBlueprintCommand implements EditorCommand {
+  readonly type = "RemoveBlueprint";
+
+  constructor(
+    private readonly levelId: EntityId,
+    private readonly blueprint: BlueprintReference,
+  ) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.levelId);
+    if (!level.blueprints.some((candidate) => candidate.id === this.blueprint.id)) {
+      throw new Error(`Blueprint ${this.blueprint.id} does not exist.`);
+    }
+
+    const nextLevel: Level = {
+      ...level,
+      blueprints: level.blueprints.filter(
+        (candidate) => candidate.id !== this.blueprint.id,
+      ),
+    };
+
+    return {
+      document: replaceLevel(document, nextLevel),
+      inverse: new AddBlueprintCommand({
+        levelId: this.levelId,
+        blueprint: this.blueprint,
+      }),
+    };
   }
 }
 
