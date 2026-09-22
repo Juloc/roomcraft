@@ -154,11 +154,16 @@ describe("shared 3D scene builder", () => {
       (child) => child.userData.roomcraftId === object.id,
     );
     expect(group?.userData.roomcraftUsesExternalModel).toBe(true);
-    expect(
-      group?.children.some(
-        (child) => child.userData.roomcraftExternalAsset === true,
-      ),
-    ).toBe(true);
+    let externalMeshFound = false;
+    group?.traverse((child) => {
+      if (
+        child instanceof Mesh &&
+        child.userData.roomcraftExternalAsset === true
+      ) {
+        externalMeshFound = true;
+      }
+    });
+    expect(externalMeshFound).toBe(true);
 
     build.dispose();
     prototype.traverse((child) => {
