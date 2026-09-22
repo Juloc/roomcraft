@@ -1646,6 +1646,7 @@ function PlanCanvas({
       ...blueprints
         .filter((blueprint) => blueprint.visible)
         .flatMap(projectedBlueprintCorners),
+      ...objects.flatMap(projectedObjectCorners),
     ];
     setCamera(fitPlanCamera(points, viewportSize));
   }
@@ -1847,6 +1848,65 @@ function PlanCanvas({
             </text>
           </g>
         ))}
+        {objects.map((object) => {
+          const selected = object.id === selectedObjectId;
+          const preview =
+            itemDragPreview?.kind === "object" &&
+            itemDragPreview.id === object.id
+              ? itemDragPreview
+              : null;
+          const xMm = preview?.xMm ?? object.centerXmm;
+          const yMm = preview?.yMm ?? object.centerYmm;
+          const definition = getBuiltinAssetDefinition(object.assetId);
+
+          return (
+            <g
+              key={object.id}
+              transform={`translate(${xMm} ${yMm}) rotate(${object.rotationDeg})`}
+              className={`plan-object${selected ? " plan-object--selected" : ""}${
+                object.locked ? " plan-object--locked" : ""
+              }`}
+            >
+              <rect
+                x={-object.widthMm / 2}
+                y={-object.depthMm / 2}
+                width={object.widthMm}
+                height={object.depthMm}
+                rx={Math.min(80, object.widthMm / 10, object.depthMm / 10)}
+                className="plan-object__footprint"
+                onPointerDown={(event) =>
+                  beginPlanItemDrag(event, {
+                    kind: "object",
+                    id: object.id,
+                    xMm: object.centerXmm,
+                    yMm: object.centerYmm,
+                    locked: object.locked,
+                  })
+                }
+              />
+              <line
+                x1={-object.widthMm * 0.28}
+                y1={-object.depthMm / 2}
+                x2={object.widthMm * 0.28}
+                y2={-object.depthMm / 2}
+                className="plan-object__front"
+                pointerEvents="none"
+              />
+              {selected ? (
+                <text
+                  x={0}
+                  y={0}
+                  className="plan-object__label"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  pointerEvents="none"
+                >
+                  {definition?.name ?? "Object"}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
         {walls.map((wall) => {
           const selected = wall.id === selectedWallId;
           const dimension = wallDimensionPosition(wall);
@@ -2066,6 +2126,32 @@ function normalizeDegrees(value: number): number {
   return normalized < 0 ? normalized + 360 : normalized;
 }
 
+function projectedObjectCorners(
+  object: ReturnType<typeof projectLevel2D>["objects"][number],
+): PlanPoint[] {
+  const radians = (object.rotationDeg * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const halfWidth = object.widthMm / 2;
+  const halfDepth = object.depthMm / 2;
+
+  return [
+    { xMm: -halfWidth, yMm: -halfDepth },
+    { xMm: halfWidth, yMm: -halfDepth },
+    { xMm: halfWidth, yMm: halfDepth },
+    { xMm: -halfWidth, yMm: halfDepth },
+  ].map((point) => ({
+    xMm:
+      object.centerXmm +
+      cosine * point.xMm -
+      sine * point.yMm,
+    yMm:
+      object.centerYmm +
+      sine * point.xMm +
+      cosine * point.yMm,
+  }));
+}
+
 function projectedBlueprintCorners(
   blueprint: ReturnType<typeof projectLevel2D>["blueprints"][number],
 ): PlanPoint[] {
@@ -2114,6 +2200,7 @@ function toolTitle(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean
   if (viewMode === "3d") return "3D view";
   if (activeTool === "select") return "Select and edit";
   if (activeTool === "blueprint-calibrate") return "Calibrate blueprint";
+  if (activeTool === "furniture") return "Place furniture";
   if (activeTool === "wall") return hasDraft ? "Continue wall" : "Draw wall";
   if (activeTool === "door") return "Place door";
   if (activeTool === "window") return "Place window";
@@ -2125,6 +2212,9 @@ function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean)
   if (activeTool === "select") return "Click a wall or blueprint to inspect it.";
   if (activeTool === "blueprint-calibrate") {
     return "Click two points with a known real-world distance, then enter that distance.";
+  }
+  if (activeTool === "furniture") {
+    return "Choose a furniture type, then click the plan. Placed furniture can be selected, dragged and resized.";
   }
   if (activeTool === "wall") {
     return hasDraft
