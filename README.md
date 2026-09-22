@@ -65,6 +65,31 @@ Build the backend:
 dotnet build RoomCraft.slnx
 ```
 
+## Container deployment
+
+The release image is a single deployable container. It contains the ASP.NET Core host, the built web frontend and an internal PostgreSQL 18 server. PostgreSQL only listens on the container loopback interface.
+
+Persist `/data`. It contains both the PostgreSQL data directory and uploaded RoomCraft assets.
+
+```yaml
+services:
+  roomcraft:
+    image: ghcr.io/juloc/roomcraft:0.1.0-alpha.1
+    volumes:
+      - roomcraft_data:/data
+    ports:
+      - "8102:8080"
+    networks:
+      - proxy
+
+volumes:
+  roomcraft_data:
+
+networks:
+  proxy:
+    external: true
+```
+
 ## Current implementation
 
 The initial vertical slice contains:
