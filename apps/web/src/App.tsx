@@ -1460,9 +1460,10 @@ function PlanCanvas({
     lastClientX: number;
     lastClientY: number;
   } | null>(null);
-  const blueprintDragRef = useRef<{
+  const itemDragRef = useRef<{
     pointerId: number;
-    blueprintId: string;
+    kind: "blueprint" | "object";
+    id: string;
     startPlanXmm: number;
     startPlanYmm: number;
     originXmm: number;
@@ -1470,8 +1471,9 @@ function PlanCanvas({
     currentXmm: number;
     currentYmm: number;
   } | null>(null);
-  const [blueprintDragPreview, setBlueprintDragPreview] = useState<{
-    blueprintId: string;
+  const [itemDragPreview, setItemDragPreview] = useState<{
+    kind: "blueprint" | "object";
+    id: string;
     xMm: number;
     yMm: number;
   } | null>(null);
@@ -1531,17 +1533,24 @@ function PlanCanvas({
     panRef.current = null;
   }
 
-  function beginBlueprintDrag(
+  function beginPlanItemDrag(
     event: ReactPointerEvent<SVGElement>,
-    blueprint: ReturnType<typeof projectLevel2D>["blueprints"][number],
+    item: {
+      kind: "blueprint" | "object";
+      id: string;
+      xMm: number;
+      yMm: number;
+      locked: boolean;
+    },
   ) {
     if (activeTool !== "select" || event.button !== 0) return;
 
     event.preventDefault();
     event.stopPropagation();
-    onSelectBlueprint(blueprint.id);
+    if (item.kind === "blueprint") onSelectBlueprint(item.id);
+    else onSelectObject(item.id);
 
-    if (blueprint.locked) return;
+    if (item.locked) return;
 
     const svg = svgRef.current;
     if (!svg) return;
@@ -1549,25 +1558,29 @@ function PlanCanvas({
     if (!point) return;
 
     svg.setPointerCapture(event.pointerId);
-    blueprintDragRef.current = {
+    itemDragRef.current = {
       pointerId: event.pointerId,
-      blueprintId: blueprint.id,
+      kind: item.kind,
+      id: item.id,
       startPlanXmm: point.xMm,
       startPlanYmm: point.yMm,
-      originXmm: blueprint.xMm,
-      originYmm: blueprint.yMm,
-      currentXmm: blueprint.xMm,
-      currentYmm: blueprint.yMm,
+      originXmm: item.xMm,
+      originYmm: item.yMm,
+      currentXmm: item.xMm,
+      currentYmm: item.yMm,
     };
-    setBlueprintDragPreview({
-      blueprintId: blueprint.id,
-      xMm: blueprint.xMm,
-      yMm: blueprint.yMm,
+    setItemDragPreview({
+      kind: item.kind,
+      id: item.id,
+      xMm: item.xMm,
+      yMm: item.yMm,
     });
   }
 
-  function updateBlueprintDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
-    const drag = blueprintDragRef.current;
+  function updatePlanItemDrag(
+    event: ReactPointerEvent<SVGSVGElement>,
+  ): boolean {
+    const drag = itemDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return false;
 
     const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
@@ -1579,39 +1592,49 @@ function PlanCanvas({
     drag.currentYmm = Math.round(
       drag.originYmm + point.yMm - drag.startPlanYmm,
     );
-    setBlueprintDragPreview({
-      blueprintId: drag.blueprintId,
+    setItemDragPreview({
+      kind: drag.kind,
+      id: drag.id,
       xMm: drag.currentXmm,
       yMm: drag.currentYmm,
     });
     return true;
   }
 
-  function finishBlueprintDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
-    const drag = blueprintDragRef.current;
+  function finishPlanItemDrag(
+    event: ReactPointerEvent<SVGSVGElement>,
+  ): boolean {
+    const drag = itemDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return false;
 
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
-    blueprintDragRef.current = null;
-    setBlueprintDragPreview(null);
+    itemDragRef.current = null;
+    setItemDragPreview(null);
 
-    if (drag.currentXmm !== drag.originXmm || drag.currentYmm !== drag.originYmm) {
-      onMoveBlueprint(drag.blueprintId, drag.currentXmm, drag.currentYmm);
+    if (
+      drag.currentXmm !== drag.originXmm ||
+      drag.currentYmm !== drag.originYmm
+    ) {
+      if (drag.kind === "blueprint") {
+        onMoveBlueprint(drag.id, drag.currentXmm, drag.currentYmm);
+      } else {
+        onMoveObject(drag.id, drag.currentXmm, drag.currentYmm);
+      }
     }
     return true;
   }
 
-  function cancelBlueprintDrag(event?: ReactPointerEvent<SVGSVGElement>) {
-    const drag = blueprintDragRef.current;
+  function cancelPlanItemDrag(event?: ReactPointerEvent<SVGSVGElement>) {
+    const drag = itemDragRef.current;
     const svg = event?.currentTarget ?? svgRef.current;
     if (drag && svg?.hasPointerCapture(drag.pointerId)) {
       svg.releasePointerCapture(drag.pointerId);
     }
-    blueprintDragRef.current = null;
-    setBlueprintDragPreview(null);
+    itemDragRef.current = null;
+    setItemDragPreview(null);
   }
 
   function fitPlan() {
@@ -1650,7 +1673,7 @@ function PlanCanvas({
           setCamera((current) => zoomPlanCameraAt(current, anchor, scale));
         }}
         onPointerMove={(event) => {
-          if (updateBlueprintDrag(event)) return;
+          if (updatePlanItemDrag(event)) return;
 
           const pan = panRef.current;
           if (pan?.pointerId === event.pointerId) {
@@ -1683,11 +1706,11 @@ function PlanCanvas({
           onPoint(point);
         }}
         onPointerUp={(event) => {
-          if (finishBlueprintDrag(event)) return;
+          if (finishPlanItemDrag(event)) return;
           endPan(event);
         }}
         onPointerCancel={(event) => {
-          cancelBlueprintDrag(event);
+          cancelPlanItemDrag(event);
           endPan(event);
         }}
         onPointerLeave={() => {
@@ -1695,8 +1718,8 @@ function PlanCanvas({
         }}
         onKeyDown={(event) => {
           if (event.key !== "Escape") return;
-          if (blueprintDragRef.current) {
-            cancelBlueprintDrag();
+          if (itemDragRef.current) {
+            cancelPlanItemDrag();
             return;
           }
           onCancel();
@@ -1723,8 +1746,9 @@ function PlanCanvas({
           .map((blueprint) => {
             const selected = blueprint.id === selectedBlueprintId;
             const preview =
-              blueprintDragPreview?.blueprintId === blueprint.id
-                ? blueprintDragPreview
+              itemDragPreview?.kind === "blueprint" &&
+              itemDragPreview.id === blueprint.id
+                ? itemDragPreview
                 : null;
             const originXmm = preview?.xMm ?? blueprint.xMm;
             const originYmm = preview?.yMm ?? blueprint.yMm;
@@ -1747,7 +1771,15 @@ function PlanCanvas({
                   overflow="hidden"
                   opacity={blueprint.opacity}
                   className={`plan-blueprint${blueprint.locked ? " plan-blueprint--locked" : ""}`}
-                  onPointerDown={(event) => beginBlueprintDrag(event, blueprint)}
+                  onPointerDown={(event) =>
+                    beginPlanItemDrag(event, {
+                      kind: "blueprint",
+                      id: blueprint.id,
+                      xMm: blueprint.xMm,
+                      yMm: blueprint.yMm,
+                      locked: blueprint.locked,
+                    })
+                  }
                 >
                   <image
                     href={assetContentUrl(blueprint.assetId)}
