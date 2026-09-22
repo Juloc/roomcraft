@@ -109,6 +109,17 @@ export async function exportProjectGlb(
   }
 }
 
+export function rasterFloorPlanFileName(
+  document: ProjectDocument,
+  levelId: EntityId,
+  format: "png" | "jpeg",
+): string {
+  const level = document.levels.find((candidate) => candidate.id === levelId);
+  const levelName = level?.name || "level";
+  const extension = format === "jpeg" ? "jpg" : "png";
+  return `${safeFileStem(document.name)}-${safeFileStem(levelName)}.${extension}`;
+}
+
 export function svgFloorPlanFileName(
   document: ProjectDocument,
   levelId: EntityId,
