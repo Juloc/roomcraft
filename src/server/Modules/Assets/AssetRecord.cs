@@ -9,5 +9,6 @@ internal sealed class AssetRecord
     public required long SizeBytes { get; init; }
     public required string Sha256 { get; init; }
     public required string StorageKey { get; init; }
+    public required string MetadataJson { get; init; }
     public required DateTimeOffset CreatedUtc { get; init; }
 }
