@@ -54,7 +54,10 @@ test("builds, persists, reloads and exports a planned room", async ({
     },
   });
 
-  const furnitureWidth = page.getByLabel("Width", { exact: true });
+  const tablePanel = page
+    .locator(".selection-properties")
+    .filter({ hasText: "Selected Table" });
+  const furnitureWidth = tablePanel.getByRole("textbox", { name: /Width/ });
   await expect(furnitureWidth).toBeVisible();
   await furnitureWidth.fill("1800 mm");
   await furnitureWidth.press("Enter");
@@ -71,7 +74,8 @@ test("builds, persists, reloads and exports a planned room", async ({
   await expect(page.getByText("Cabinet construction", { exact: true })).toBeVisible();
   await expect(page.getByText("Cut list", { exact: true })).toBeVisible();
 
-  const shelves = page.getByLabel("Shelves", { exact: true });
+  const cabinetBuilder = page.locator(".cabinet-builder");
+  const shelves = cabinetBuilder.getByRole("textbox", { name: /Shelves/ });
   await shelves.fill("4");
   await shelves.press("Enter");
 
