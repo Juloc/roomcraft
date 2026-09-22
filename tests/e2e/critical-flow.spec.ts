@@ -46,11 +46,25 @@ test("builds, persists, reloads and exports a planned room", async ({
   await expect(statValue(page, "Openings")).toHaveText("1");
 
   await page.getByRole("button", { name: "Furniture", exact: true }).click();
+  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await plan.click({
+    position: {
+      x: box.width * 0.54,
+      y: box.height * 0.44,
+    },
+  });
+
+  const furnitureWidth = page.getByLabel("Width", { exact: true });
+  await expect(furnitureWidth).toBeVisible();
+  await furnitureWidth.fill("1800 mm");
+  await furnitureWidth.press("Enter");
+  await expect(furnitureWidth).toHaveValue("1800 mm");
+
   await page.getByRole("button", { name: "New cabinet" }).click();
   await plan.click({
     position: {
-      x: box.width * 0.48,
-      y: box.height * 0.43,
+      x: box.width * 0.4,
+      y: box.height * 0.44,
     },
   });
 
@@ -68,7 +82,13 @@ test("builds, persists, reloads and exports a planned room", async ({
   const persistedProject = await persisted.json();
   expect(persistedProject.document.levels[0].walls).toHaveLength(4);
   expect(persistedProject.document.levels[0].openings).toHaveLength(1);
-  expect(persistedProject.document.levels[0].objects).toHaveLength(1);
+  expect(persistedProject.document.levels[0].objects).toHaveLength(2);
+  expect(
+    persistedProject.document.levels[0].objects.some(
+      (object: { assetId: string; widthMm: number }) =>
+        object.assetId === "builtin:table" && object.widthMm === 1800,
+    ),
+  ).toBe(true);
   expect(persistedProject.document.levels[0].blueprints).toHaveLength(1);
   expect(persistedProject.document.parametricAssets).toHaveLength(1);
   expect(persistedProject.document.parametricAssets[0].shelfCount).toBe(4);
