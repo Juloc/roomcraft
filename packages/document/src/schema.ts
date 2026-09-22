@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 2 as const;
+export const CURRENT_SCHEMA_VERSION = 3 as const;
 
 export type EntityId = string;
 export type Millimetres = number;
@@ -71,11 +71,19 @@ export interface ObjectInstance {
   locked: boolean;
 }
 
+export interface BlueprintCrop {
+  leftPx: number;
+  topPx: number;
+  widthPx: number;
+  heightPx: number;
+}
+
 export interface BlueprintReference {
   id: EntityId;
   assetId: EntityId;
   sourceWidthPx: number;
   sourceHeightPx: number;
+  crop: BlueprintCrop;
   originXmm: Millimetres;
   originYmm: Millimetres;
   millimetresPerPixel: number;
