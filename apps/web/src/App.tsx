@@ -885,12 +885,9 @@ function PlanCanvas({
 
   function cancelBlueprintDrag(event?: ReactPointerEvent<SVGSVGElement>) {
     const drag = blueprintDragRef.current;
-    if (
-      drag &&
-      event &&
-      event.currentTarget.hasPointerCapture(drag.pointerId)
-    ) {
-      event.currentTarget.releasePointerCapture(drag.pointerId);
+    const svg = event?.currentTarget ?? svgRef.current;
+    if (drag && svg?.hasPointerCapture(drag.pointerId)) {
+      svg.releasePointerCapture(drag.pointerId);
     }
     blueprintDragRef.current = null;
     setBlueprintDragPreview(null);
