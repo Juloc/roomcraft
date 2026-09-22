@@ -9,6 +9,10 @@ export interface ProjectedWall2D {
   y2Mm: number;
   lengthMm: number;
   thicknessMm: number;
+  leftMaterialId: EntityId | null;
+  rightMaterialId: EntityId | null;
+  leftColorHex: string | null;
+  rightColorHex: string | null;
 }
 
 export interface ProjectedOpening2D {
@@ -33,6 +37,10 @@ export interface ProjectedRoom2D {
   centerXmm: number;
   centerYmm: number;
   areaMm2: number;
+  floorMaterialId: EntityId | null;
+  ceilingMaterialId: EntityId | null;
+  floorColorHex: string | null;
+  ceilingColorHex: string | null;
 }
 
 export interface ProjectedBlueprint2D {
@@ -86,6 +94,10 @@ export function projectLevel2D(document: ProjectDocument, levelId: EntityId): Pl
 
   const vertices = new Map(level.vertices.map((vertex) => [vertex.id, vertex]));
   const wallById = new Map(level.walls.map((wall) => [wall.id, wall]));
+  const materialById = new Map(document.materials.map((material) => [material.id, material]));
+  const roomFinishByKey = new Map(
+    level.roomFinishes.map((finish) => [finish.roomKey, finish]),
+  );
   const roomAnalysis = analyzePlanarFaces(level.vertices, level.walls);
 
   const walls = level.walls.map((wall) => {
@@ -101,6 +113,12 @@ export function projectLevel2D(document: ProjectDocument, levelId: EntityId): Pl
       y2Mm: end.yMm,
       lengthMm: Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm),
       thicknessMm: wall.thicknessMm,
+      leftMaterialId: wall.leftMaterialId ?? null,
+      rightMaterialId: wall.rightMaterialId ?? null,
+      leftColorHex:
+        materialById.get(wall.leftMaterialId ?? "")?.baseColorHex ?? null,
+      rightColorHex:
+        materialById.get(wall.rightMaterialId ?? "")?.baseColorHex ?? null,
     } satisfies ProjectedWall2D;
   });
 
@@ -139,16 +157,25 @@ export function projectLevel2D(document: ProjectDocument, levelId: EntityId): Pl
     } satisfies ProjectedOpening2D;
   });
 
-  const rooms = roomAnalysis.faces.map(
-    (face) =>
-      ({
-        key: face.key,
-        points: face.points,
-        centerXmm: face.centroid.xMm,
-        centerYmm: face.centroid.yMm,
-        areaMm2: face.areaMm2,
-      }) satisfies ProjectedRoom2D,
-  );
+  const rooms = roomAnalysis.faces.map((face) => {
+    const finish = roomFinishByKey.get(face.key);
+    const floorMaterialId = finish?.floorMaterialId ?? null;
+    const ceilingMaterialId = finish?.ceilingMaterialId ?? null;
+
+    return {
+      key: face.key,
+      points: face.points,
+      centerXmm: face.centroid.xMm,
+      centerYmm: face.centroid.yMm,
+      areaMm2: face.areaMm2,
+      floorMaterialId,
+      ceilingMaterialId,
+      floorColorHex:
+        materialById.get(floorMaterialId ?? "")?.baseColorHex ?? null,
+      ceilingColorHex:
+        materialById.get(ceilingMaterialId ?? "")?.baseColorHex ?? null,
+    } satisfies ProjectedRoom2D;
+  });
 
   const blueprints = level.blueprints.map(
     (blueprint) =>
