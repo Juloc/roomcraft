@@ -2,6 +2,7 @@ import {
   BUILTIN_ASSETS,
   catalogVersionAssetId,
   getBuiltinAssetDefinition,
+  parseCatalogVersionAssetId,
 } from "@roomcraft/catalog";
 import {
   createEmptyProject,
@@ -65,6 +66,7 @@ import {
 } from "react";
 import { assetContentUrl, readImageDimensions, uploadBlueprintAsset } from "./assets-api";
 import {
+  getCatalogItem,
   searchCatalogItems,
   type CatalogItemSummaryDto,
   type CatalogVersionDto,
@@ -333,6 +335,50 @@ export function App() {
       setCatalogSearchState("error");
       setCatalogSearchError(
         error instanceof Error ? error.message : "Catalog search failed.",
+      );
+    }
+  }
+
+  async function loadCatalogDefinition(assetId: string) {
+    if (catalogDefinitions[assetId]) return;
+
+    const reference = parseCatalogVersionAssetId(assetId);
+    if (!reference) return;
+
+    try {
+      const item = await getCatalogItem(reference.itemId);
+      const version = item.versions.find(
+        (candidate) => candidate.version === reference.version,
+      );
+      if (!version) {
+        throw new Error(
+          `Catalog version ${reference.itemId}@${reference.version} no longer exists.`,
+        );
+      }
+
+      const definition = catalogFurnitureDefinition(
+        {
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          manufacturer: item.manufacturer,
+          sku: item.sku,
+          productUrl: item.productUrl,
+          currentVersion: item.currentVersion,
+          updatedUtc: item.updatedUtc,
+          version,
+        },
+        version,
+      );
+      setCatalogDefinitions((current) => ({
+        ...current,
+        [definition.id]: definition,
+      }));
+    } catch (error) {
+      setCatalogSearchError(
+        error instanceof Error
+          ? error.message
+          : "Catalog item could not be loaded.",
       );
     }
   }
@@ -794,6 +840,10 @@ export function App() {
 
   function selectObject(objectId: string) {
     setSelection(selectOnly({ kind: "object", id: objectId }));
+    const object = currentLevel()?.objects.find(
+      (candidate) => candidate.id === objectId,
+    );
+    if (object) void loadCatalogDefinition(object.assetId);
   }
 
   function updateObject(objectId: string, changes: Partial<ObjectInstance>) {
