@@ -1,4 +1,8 @@
-import { CURRENT_SCHEMA_VERSION, type ProjectDocument } from "./schema";
+import {
+  CURRENT_SCHEMA_VERSION,
+  type BlueprintReference,
+  type ProjectDocument,
+} from "./schema";
 import { validateProjectDocument } from "./validation";
 
 interface ProjectDocumentV1 {
@@ -7,6 +11,20 @@ interface ProjectDocumentV1 {
   name: string;
   settings: ProjectDocument["settings"];
   levels: Array<Omit<ProjectDocument["levels"][number], "blueprints">>;
+}
+
+type BlueprintReferenceV2 = Omit<BlueprintReference, "crop">;
+
+interface ProjectDocumentV2 {
+  schemaVersion: 2;
+  id: string;
+  name: string;
+  settings: ProjectDocument["settings"];
+  levels: Array<
+    Omit<ProjectDocument["levels"][number], "blueprints"> & {
+      blueprints: BlueprintReferenceV2[];
+    }
+  >;
 }
 
 export function migrateProjectDocument(value: unknown): ProjectDocument {
@@ -22,7 +40,11 @@ export function migrateProjectDocument(value: unknown): ProjectDocument {
   }
 
   if (schemaVersion === 1) {
-    return migrateV1ToV2(value as ProjectDocumentV1);
+    return migrateV2ToV3(migrateV1ToV2(value as ProjectDocumentV1));
+  }
+
+  if (schemaVersion === 2) {
+    return migrateV2ToV3(value as ProjectDocumentV2);
   }
 
   if (typeof schemaVersion === "number" && schemaVersion > CURRENT_SCHEMA_VERSION) {
@@ -40,13 +62,32 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   return migrated;
 }
 
-function migrateV1ToV2(document: ProjectDocumentV1): ProjectDocument {
+function migrateV1ToV2(document: ProjectDocumentV1): ProjectDocumentV2 {
   return {
     ...document,
     schemaVersion: 2,
     levels: document.levels.map((level) => ({
       ...level,
       blueprints: [],
+    })),
+  };
+}
+
+function migrateV2ToV3(document: ProjectDocumentV2): ProjectDocument {
+  return {
+    ...document,
+    schemaVersion: 3,
+    levels: document.levels.map((level) => ({
+      ...level,
+      blueprints: level.blueprints.map((blueprint) => ({
+        ...blueprint,
+        crop: {
+          leftPx: 0,
+          topPx: 0,
+          widthPx: blueprint.sourceWidthPx,
+          heightPx: blueprint.sourceHeightPx,
+        },
+      })),
     })),
   };
 }
