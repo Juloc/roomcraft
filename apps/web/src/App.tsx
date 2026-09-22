@@ -6,12 +6,15 @@ import {
 } from "@roomcraft/document";
 import {
   AddBlueprintCommand,
+  AddLevelCommand,
   AddOpeningCommand,
   AddWallCommand,
   CalibrateBlueprintCommand,
   EMPTY_SELECTION,
+  RemoveLevelCommand,
   SetWallLengthCommand,
   UpdateBlueprintCommand,
+  UpdateLevelCommand,
   DEFAULT_PLAN_CAMERA,
   fitPlanCamera,
   panPlanCamera,
@@ -78,6 +81,7 @@ export function App() {
   const { document, revision, saveState, saveError } = session;
 
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
+  const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
   const blueprintFileRef = useRef<HTMLInputElement | null>(null);
@@ -97,7 +101,9 @@ export function App() {
     );
   }
 
-  const level = document.levels[0];
+  const level =
+    document.levels.find((candidate) => candidate.id === activeLevelId) ??
+    document.levels[0];
   if (!level) {
     return (
       <main className="fatal-state" role="alert">
@@ -130,6 +136,82 @@ export function App() {
 
   function currentLevel() {
     return document.levels.find((candidate) => candidate.id === levelId) ?? null;
+  }
+
+  function changeActiveLevel(nextLevelId: string) {
+    if (!document.levels.some((candidate) => candidate.id === nextLevelId)) return;
+    cancelTransient();
+    setSelection(EMPTY_SELECTION);
+    setActiveLevelId(nextLevelId);
+  }
+
+  function addLevel() {
+    const current = currentLevel();
+    if (!current) return;
+
+    const id = createEntityId("level");
+    const levelNumber = document.levels.length + 1;
+    const nextElevationMm =
+      current.elevationMm +
+      current.defaultWallHeightMm +
+      current.floorThicknessMm;
+
+    session.execute(
+      new AddLevelCommand({
+        level: {
+          id,
+          name: `Level ${levelNumber}`,
+          elevationMm: nextElevationMm,
+          defaultWallHeightMm: current.defaultWallHeightMm,
+          floorThicknessMm: current.floorThicknessMm,
+          vertices: [],
+          walls: [],
+          openings: [],
+          objects: [],
+          blueprints: [],
+        },
+      }),
+    );
+
+    cancelTransient();
+    setSelection(EMPTY_SELECTION);
+    setActiveLevelId(id);
+  }
+
+  function updateActiveLevel(
+    changes: Partial<
+      Pick<
+        NonNullable<ReturnType<typeof currentLevel>>,
+        "name" | "elevationMm" | "defaultWallHeightMm" | "floorThicknessMm"
+      >
+    >,
+  ) {
+    const current = currentLevel();
+    if (!current) return;
+
+    session.execute(
+      new UpdateLevelCommand({
+        levelId: current.id,
+        ...changes,
+      }),
+    );
+  }
+
+  function removeActiveLevel() {
+    const current = currentLevel();
+    if (!current || document.levels.length <= 1) return;
+
+    const index = document.levels.findIndex((candidate) => candidate.id === current.id);
+    const fallback =
+      document.levels[index - 1] ??
+      document.levels[index + 1] ??
+      document.levels[0];
+    if (!fallback) return;
+
+    session.execute(new RemoveLevelCommand(current.id));
+    cancelTransient();
+    setSelection(EMPTY_SELECTION);
+    setActiveLevelId(fallback.id);
   }
 
   function snap(point: PlanPoint): PlanSnapResult | null {
@@ -534,9 +616,82 @@ export function App() {
         <aside className="properties">
           <Panel>
             <div className="properties__content">
-              <div>
+              <div className="level-editor">
                 <span className="eyebrow">Level</span>
-                <h2>{level.name}</h2>
+                <select
+                  className="rc-input level-select"
+                  value={levelId}
+                  aria-label="Active level"
+                  onChange={(event) => changeActiveLevel(event.target.value)}
+                >
+                  {document.levels.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="rc-field">
+                  <span className="rc-field__label">Name</span>
+                  <input
+                    key={`${level.id}:${level.name}`}
+                    className="rc-input"
+                    type="text"
+                    defaultValue={level.name}
+                    onBlur={(event) => {
+                      const name = event.currentTarget.value.trim();
+                      if (!name || name === level.name) return;
+                      updateActiveLevel({ name });
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                      if (event.key === "Escape") {
+                        event.currentTarget.value = level.name;
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </label>
+                <NumberField
+                  label="Elevation"
+                  value={level.elevationMm}
+                  step={1}
+                  suffix="mm"
+                  onCommit={(value) =>
+                    updateActiveLevel({ elevationMm: Math.round(value) })
+                  }
+                />
+                <NumberField
+                  label="Wall height"
+                  value={level.defaultWallHeightMm}
+                  min={100}
+                  step={1}
+                  suffix="mm"
+                  onCommit={(value) =>
+                    updateActiveLevel({ defaultWallHeightMm: Math.round(value) })
+                  }
+                />
+                <NumberField
+                  label="Floor thickness"
+                  value={level.floorThicknessMm}
+                  min={0}
+                  step={1}
+                  suffix="mm"
+                  onCommit={(value) =>
+                    updateActiveLevel({ floorThicknessMm: Math.round(value) })
+                  }
+                />
+                <div className="level-editor__actions">
+                  <Button variant="secondary" onClick={addLevel}>
+                    Add level
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={document.levels.length <= 1}
+                    onClick={removeActiveLevel}
+                  >
+                    Delete level
+                  </Button>
+                </div>
               </div>
 
               <dl className="stats">
@@ -557,8 +712,8 @@ export function App() {
                   <dd>{projection.topologyIssues.length === 0 ? "OK" : `${projection.topologyIssues.length} issue(s)`}</dd>
                 </div>
                 <div>
-                  <dt>Height</dt>
-                  <dd>{level.defaultWallHeightMm} mm</dd>
+                  <dt>Levels</dt>
+                  <dd>{document.levels.length}</dd>
                 </div>
                 <div>
                   <dt>Grid</dt>
