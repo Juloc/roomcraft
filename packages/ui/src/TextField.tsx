@@ -9,6 +9,7 @@ export interface TextFieldProps {
   helpText?: string;
   autoComplete?: string;
   inputMode?: "text" | "search" | "email" | "url";
+  type?: "text" | "password" | "email" | "url" | "search";
 }
 
 export function TextField({
@@ -20,6 +21,7 @@ export function TextField({
   helpText,
   autoComplete = "off",
   inputMode = "text",
+  type = "text",
 }: TextFieldProps) {
   const inputId = useId();
   const helpId = `${inputId}-help`;
@@ -30,8 +32,8 @@ export function TextField({
       <input
         id={inputId}
         className="rc-input"
-        type={inputMode === "search" ? "search" : "text"}
-        inputMode={inputMode === "search" ? "search" : inputMode}
+        type={type}
+        inputMode={type === "password" ? undefined : inputMode}
         value={value}
         placeholder={placeholder}
         disabled={disabled}
