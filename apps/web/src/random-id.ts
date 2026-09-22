@@ -1,9 +1,11 @@
-export type RandomValuesSource = (target: Uint8Array) => Uint8Array;
+export type RandomValuesSource = (target: Uint8Array<ArrayBuffer>) => void;
 
 export function createRandomUuid(
-  getRandomValues: RandomValuesSource = (target) => crypto.getRandomValues(target),
+  getRandomValues: RandomValuesSource = (target) => {
+    crypto.getRandomValues(target);
+  },
 ): string {
-  const bytes = new Uint8Array(16);
+  const bytes = new Uint8Array(new ArrayBuffer(16));
   getRandomValues(bytes);
 
   bytes[6] = (bytes[6]! & 0x0f) | 0x40;
