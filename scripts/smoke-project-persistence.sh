@@ -94,6 +94,43 @@ if [[ "$STALE_STATUS" != "409" ]]; then
   exit 1
 fi
 
+RACE_PROJECT_ID="${PROJECT_ID}_race"
+RACE_BODY=$(cat <<JSON
+{"document":{"schemaVersion":4,"id":"$RACE_PROJECT_ID","name":"Race Project","settings":{"unitSystem":"metric","gridSizeMm":100,"angleSnapDeg":15},"levels":[{"id":"level_ground","name":"Ground floor","elevationMm":0,"defaultWallHeightMm":2500,"floorThicknessMm":200,"vertices":[],"walls":[],"openings":[],"objects":[],"blueprints":[]}]}}
+JSON
+)
+
+RACE_STATUS_ONE_FILE="${RUNNER_TEMP:-/tmp}/roomcraft-race-status-one.txt"
+RACE_STATUS_TWO_FILE="${RUNNER_TEMP:-/tmp}/roomcraft-race-status-two.txt"
+RACE_RESPONSE_ONE="${RUNNER_TEMP:-/tmp}/roomcraft-race-response-one.json"
+RACE_RESPONSE_TWO="${RUNNER_TEMP:-/tmp}/roomcraft-race-response-two.json"
+
+(
+  printf '%s' "$RACE_BODY" | curl --silent --show-error     -o "$RACE_RESPONSE_ONE"     -w "%{http_code}"     -X POST     -H "Content-Type: application/json"     --data-binary @-     "$API_URL/api/projects" >"$RACE_STATUS_ONE_FILE"
+) &
+RACE_PID_ONE=$!
+
+(
+  printf '%s' "$RACE_BODY" | curl --silent --show-error     -o "$RACE_RESPONSE_TWO"     -w "%{http_code}"     -X POST     -H "Content-Type: application/json"     --data-binary @-     "$API_URL/api/projects" >"$RACE_STATUS_TWO_FILE"
+) &
+RACE_PID_TWO=$!
+
+wait "$RACE_PID_ONE"
+wait "$RACE_PID_TWO"
+
+RACE_STATUS_ONE=$(cat "$RACE_STATUS_ONE_FILE")
+RACE_STATUS_TWO=$(cat "$RACE_STATUS_TWO_FILE")
+
+if ! {
+  [[ "$RACE_STATUS_ONE" == "201" && "$RACE_STATUS_TWO" == "409" ]] ||
+  [[ "$RACE_STATUS_ONE" == "409" && "$RACE_STATUS_TWO" == "201" ]]
+}; then
+  printf 'Expected concurrent create statuses 201/409, got %s/%s\n'     "$RACE_STATUS_ONE" "$RACE_STATUS_TWO" >&2
+  cat "$RACE_RESPONSE_ONE" >&2 || true
+  cat "$RACE_RESPONSE_TWO" >&2 || true
+  exit 1
+fi
+
 LEGACY_PROJECT_ID="${PROJECT_ID}_legacy"
 LEGACY_RESPONSE=$(cat <<JSON | curl --fail --silent --show-error \
   -X POST \
