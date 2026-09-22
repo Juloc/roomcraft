@@ -194,11 +194,11 @@ Goal: plan with real dimensions and reusable assets.
 - lock ✅
 
 ### 6.2 Catalog 🚧
-- Catalog backend module 🚧
-- categories/search 🚧
-- manufacturer/SKU/product URL metadata 🚧
-- immutable asset versions 🚧
-- thumbnails 🚧
+- Catalog backend module ✅
+- categories/search ✅
+- manufacturer/SKU/product URL metadata ✅
+- immutable asset versions ✅
+- thumbnail references/browser display 🚧
 - favorites later if justified
 
 ### 6.3 GLB import
