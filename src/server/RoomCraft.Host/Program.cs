@@ -27,10 +27,26 @@ app.MapProjectsEndpoints();
 app.MapAssetsEndpoints();
 app.MapCatalogEndpoints();
 
-app.MapGet("/", () => Results.Ok(new
+var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+var indexPath = Path.Combine(webRoot, "index.html");
+
+if (File.Exists(indexPath))
 {
-    name = "RoomCraft API",
-    frontend = "Run the Vite app from apps/web during development.",
-}));
+    app.MapStaticAssets();
+    app.MapFallback(async context =>
+    {
+        context.Response.Headers.CacheControl = "no-cache";
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.SendFileAsync(indexPath);
+    });
+}
+else
+{
+    app.MapGet("/", () => Results.Ok(new
+    {
+        name = "RoomCraft API",
+        frontend = "Run the Vite app from apps/web during development.",
+    }));
+}
 
 app.Run();
