@@ -157,3 +157,22 @@ textarea {
 .rc-field__error {
   color: var(--rc-danger);
 }
+
+.rc-number-field {
+  position: relative;
+  display: block;
+}
+
+.rc-number-field .rc-input {
+  padding-right: 64px;
+}
+
+.rc-number-field__suffix {
+  position: absolute;
+  top: 50%;
+  right: var(--rc-space-3);
+  transform: translateY(-50%);
+  color: var(--rc-text-muted);
+  font-size: 0.8rem;
+  pointer-events: none;
+}
