@@ -574,6 +574,7 @@ export function App() {
           openings: [],
           objects: [],
           blueprints: [],
+          roomFinishes: [],
         },
       }),
     );
