@@ -23,7 +23,9 @@ import {
   RemoveBlueprintCommand,
   RemoveLevelCommand,
   RemoveObjectCommand,
+  SetRoomSurfaceMaterialsCommand,
   SetWallLengthCommand,
+  SetWallMaterialsCommand,
   UpdateBlueprintCommand,
   UpdateLevelCommand,
   UpdateObjectCommand,
@@ -57,6 +59,7 @@ import {
   NumberField,
   Panel,
   SegmentedControl,
+  SelectField,
   TextField,
   Toolbar,
 } from "@roomcraft/ui";
@@ -195,6 +198,7 @@ export function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
   const [threeLevelScope, setThreeLevelScope] =
     useState<RoomSceneLevelScope>("active");
+  const [showCeilings, setShowCeilings] = useState(false);
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
   const [ghostMode, setGhostMode] = useState<GhostMode>("off");
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
@@ -310,6 +314,22 @@ export function App() {
     selectedWallId === null
       ? null
       : projection.walls.find((wall) => wall.id === selectedWallId) ?? null;
+  const selectedRoomKey =
+    selection.primary?.kind === "room" &&
+    projection.rooms.some((room) => room.key === selection.primary?.id)
+      ? selection.primary.id
+      : null;
+  const selectedRoom =
+    selectedRoomKey === null
+      ? null
+      : projection.rooms.find((room) => room.key === selectedRoomKey) ?? null;
+  const materialOptions = [
+    { value: "", label: "Default" },
+    ...document.materials.map((material) => ({
+      value: material.id,
+      label: material.name,
+    })),
+  ];
   const selectedBlueprintId =
     selection.primary?.kind === "blueprint" &&
     level.blueprints.some((blueprint) => blueprint.id === selection.primary?.id)
@@ -554,6 +574,7 @@ export function App() {
           openings: [],
           objects: [],
           blueprints: [],
+          roomFinishes: [],
         },
       }),
     );
@@ -1086,6 +1107,42 @@ export function App() {
     setSelection(selectOnly({ kind: "wall", id: wallId }));
   }
 
+  function selectRoom(roomKey: string) {
+    setSelection(selectOnly({ kind: "room", id: roomKey }));
+  }
+
+  function setSelectedWallMaterial(
+    side: "left" | "right",
+    materialId: string,
+  ) {
+    if (!selectedWallId) return;
+    session.execute(
+      new SetWallMaterialsCommand({
+        levelId,
+        wallId: selectedWallId,
+        ...(side === "left"
+          ? { leftMaterialId: materialId || null }
+          : { rightMaterialId: materialId || null }),
+      }),
+    );
+  }
+
+  function setSelectedRoomMaterial(
+    surface: "floor" | "ceiling",
+    materialId: string,
+  ) {
+    if (!selectedRoomKey) return;
+    session.execute(
+      new SetRoomSurfaceMaterialsCommand({
+        levelId,
+        roomKey: selectedRoomKey,
+        ...(surface === "floor"
+          ? { floorMaterialId: materialId || null }
+          : { ceilingMaterialId: materialId || null }),
+      }),
+    );
+  }
+
   function clearSelection() {
     setSelection(EMPTY_SELECTION);
   }
@@ -1148,6 +1205,15 @@ export function App() {
             onChange={changeView}
             ariaLabel="Editor view"
           />
+          {viewMode === "3d" ? (
+            <Button
+              variant={showCeilings ? "primary" : "ghost"}
+              onClick={() => setShowCeilings((current) => !current)}
+              title="Show or hide derived room ceilings"
+            >
+              Ceilings
+            </Button>
+          ) : null}
           {viewMode === "3d" && document.levels.length > 1 ? (
             <SegmentedControl
               value={threeLevelScope}
@@ -1232,6 +1298,7 @@ export function App() {
               ghostLabel={ghostLevel?.name ?? null}
               activeTool={activeTool}
               selectedWallId={selectedWallId}
+              selectedRoomKey={selectedRoomKey}
               selectedBlueprintId={selectedBlueprintId}
               selectedObjectId={selectedObjectId}
               calibrationDraft={calibrationDraft}
@@ -1242,6 +1309,7 @@ export function App() {
               openingHover={openingHover}
               onPoint={handlePlanPoint}
               onSelectWall={selectWall}
+              onSelectRoom={selectRoom}
               onSelectBlueprint={selectBlueprint}
               onMoveBlueprint={moveBlueprint}
               onSelectObject={selectObject}
@@ -1256,8 +1324,9 @@ export function App() {
               document={document}
               levelId={levelId}
               levelScope={threeLevelScope}
-              selectedId={selectedObjectId ?? selectedWallId}
+              selectedId={selectedObjectId ?? selectedWallId ?? selectedRoomKey}
               modelAssets={runtimeModelAssets}
+              showCeilings={showCeilings}
             />
           )}
         </section>
@@ -1589,6 +1658,39 @@ export function App() {
                     minMm={100}
                     helpText="The start vertex stays fixed; connected walls at the moved endpoint follow it."
                     onCommit={setSelectedWallLength}
+                  />
+                  <SelectField
+                    label="Left surface"
+                    value={selectedWall.leftMaterialId ?? ""}
+                    options={materialOptions}
+                    helpText="Left side when looking from the wall start toward its end."
+                    onChange={(value) => setSelectedWallMaterial("left", value)}
+                  />
+                  <SelectField
+                    label="Right surface"
+                    value={selectedWall.rightMaterialId ?? ""}
+                    options={materialOptions}
+                    onChange={(value) => setSelectedWallMaterial("right", value)}
+                  />
+                </div>
+              ) : null}
+
+              {selectedRoom ? (
+                <div className="selection-properties">
+                  <span className="eyebrow">Selected room</span>
+                  <strong>{formatAreaSquareMetres(selectedRoom.areaMm2)} m²</strong>
+                  <SelectField
+                    label="Floor"
+                    value={selectedRoom.floorMaterialId ?? ""}
+                    options={materialOptions}
+                    onChange={(value) => setSelectedRoomMaterial("floor", value)}
+                  />
+                  <SelectField
+                    label="Ceiling"
+                    value={selectedRoom.ceilingMaterialId ?? ""}
+                    options={materialOptions}
+                    helpText="Enable Ceilings in 3D to preview the ceiling surface."
+                    onChange={(value) => setSelectedRoomMaterial("ceiling", value)}
                   />
                 </div>
               ) : null}
@@ -1972,6 +2074,7 @@ interface PlanCanvasProps {
   ghostLabel: string | null;
   activeTool: EditorTool;
   selectedWallId: string | null;
+  selectedRoomKey: string | null;
   selectedBlueprintId: string | null;
   selectedObjectId: string | null;
   calibrationDraft: BlueprintCalibrationDraft | null;
@@ -1982,6 +2085,7 @@ interface PlanCanvasProps {
   openingHover: OpeningWallPlacement | null;
   onPoint(point: PlanPoint): void;
   onSelectWall(wallId: string): void;
+  onSelectRoom(roomKey: string): void;
   onSelectBlueprint(blueprintId: string): void;
   onMoveBlueprint(blueprintId: string, xMm: number, yMm: number): void;
   onSelectObject(objectId: string): void;
@@ -2004,6 +2108,7 @@ function PlanCanvas({
   ghostLabel,
   activeTool,
   selectedWallId,
+  selectedRoomKey,
   selectedBlueprintId,
   selectedObjectId,
   calibrationDraft,
@@ -2014,6 +2119,7 @@ function PlanCanvas({
   openingHover,
   onPoint,
   onSelectWall,
+  onSelectRoom,
   onSelectBlueprint,
   onMoveBlueprint,
   onSelectObject,
@@ -2311,6 +2417,37 @@ function PlanCanvas({
           height={viewBox.heightMm}
           fill="url(#major-grid)"
         />
+        {rooms.map((room) => {
+          const selected = room.key === selectedRoomKey;
+          return (
+            <g key={room.key} className="plan-room">
+              <polygon
+                points={room.points.map((point) => `${point.xMm},${point.yMm}`).join(" ")}
+                className={`plan-room__fill${selected ? " plan-room__fill--selected" : ""}`}
+                style={{
+                  fill: room.floorColorHex ?? undefined,
+                  opacity: room.floorColorHex ? 0.24 : undefined,
+                }}
+                onPointerDown={(event) => {
+                  if (activeTool !== "select" || event.button !== 0) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onSelectRoom(room.key);
+                }}
+              />
+              <text
+                x={room.centerXmm}
+                y={room.centerYmm}
+                className="plan-room__label"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                pointerEvents="none"
+              >
+                {formatAreaSquareMetres(room.areaMm2)} m²
+              </text>
+            </g>
+          );
+        })}
         {blueprints
           .filter((blueprint) => blueprint.visible)
           .map((blueprint) => {
@@ -2400,23 +2537,6 @@ function PlanCanvas({
             ))}
           </g>
         ) : null}
-        {rooms.map((room) => (
-          <g key={room.key} className="plan-room" pointerEvents="none">
-            <polygon
-              points={room.points.map((point) => `${point.xMm},${point.yMm}`).join(" ")}
-              className="plan-room__fill"
-            />
-            <text
-              x={room.centerXmm}
-              y={room.centerYmm}
-              className="plan-room__label"
-              textAnchor="middle"
-              dominantBaseline="middle"
-            >
-              {formatAreaSquareMetres(room.areaMm2)} m²
-            </text>
-          </g>
-        ))}
         {objects.map((object) => {
           const selected = object.id === selectedObjectId;
           const preview =
@@ -2479,6 +2599,7 @@ function PlanCanvas({
         {walls.map((wall) => {
           const selected = wall.id === selectedWallId;
           const dimension = wallDimensionPosition(wall);
+          const materialEdges = wallMaterialEdges(wall);
 
           return (
             <g key={wall.id}>
@@ -2507,6 +2628,30 @@ function PlanCanvas({
                 strokeLinecap="square"
                 pointerEvents="none"
               />
+              {wall.leftColorHex ? (
+                <line
+                  x1={materialEdges.left.x1Mm}
+                  y1={materialEdges.left.y1Mm}
+                  x2={materialEdges.left.x2Mm}
+                  y2={materialEdges.left.y2Mm}
+                  stroke={wall.leftColorHex}
+                  strokeWidth={Math.max(14, camera.mmPerPixel * 3)}
+                  className="plan-wall-material-edge"
+                  pointerEvents="none"
+                />
+              ) : null}
+              {wall.rightColorHex ? (
+                <line
+                  x1={materialEdges.right.x1Mm}
+                  y1={materialEdges.right.y1Mm}
+                  x2={materialEdges.right.x2Mm}
+                  y2={materialEdges.right.y2Mm}
+                  stroke={wall.rightColorHex}
+                  strokeWidth={Math.max(14, camera.mmPerPixel * 3)}
+                  className="plan-wall-material-edge"
+                  pointerEvents="none"
+                />
+              ) : null}
               {selected ? (
                 <text
                   x={dimension.xMm}
@@ -2637,6 +2782,7 @@ interface ThreeViewportProps {
   levelScope: RoomSceneLevelScope;
   selectedId: string | null;
   modelAssets: readonly RuntimeModelAsset[];
+  showCeilings: boolean;
 }
 
 function ThreeViewport({
@@ -2645,6 +2791,7 @@ function ThreeViewport({
   levelScope,
   selectedId,
   modelAssets,
+  showCeilings,
 }: ThreeViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<RoomSceneRenderer | null>(null);
@@ -2666,8 +2813,9 @@ function ThreeViewport({
     rendererRef.current?.setDocument(document, levelId, {
       levelScope,
       modelAssets,
+      showCeilings,
     });
-  }, [document, levelId, levelScope, modelAssets]);
+  }, [document, levelId, levelScope, modelAssets, showCeilings]);
 
   useEffect(() => {
     rendererRef.current?.setSelection(selectedId);
@@ -2755,6 +2903,32 @@ function projectedBlueprintCorners(
     xMm: blueprint.xMm + cosine * point.xMm - sine * point.yMm,
     yMm: blueprint.yMm + sine * point.xMm + cosine * point.yMm,
   }));
+}
+
+function wallMaterialEdges(
+  wall: ReturnType<typeof projectLevel2D>["walls"][number],
+) {
+  const dx = wall.x2Mm - wall.x1Mm;
+  const dy = wall.y2Mm - wall.y1Mm;
+  const length = Math.max(wall.lengthMm, 1);
+  const normalX = -dy / length;
+  const normalY = dx / length;
+  const offset = wall.thicknessMm / 2;
+
+  return {
+    left: {
+      x1Mm: wall.x1Mm + normalX * offset,
+      y1Mm: wall.y1Mm + normalY * offset,
+      x2Mm: wall.x2Mm + normalX * offset,
+      y2Mm: wall.y2Mm + normalY * offset,
+    },
+    right: {
+      x1Mm: wall.x1Mm - normalX * offset,
+      y1Mm: wall.y1Mm - normalY * offset,
+      x2Mm: wall.x2Mm - normalX * offset,
+      y2Mm: wall.y2Mm - normalY * offset,
+    },
+  };
 }
 
 function wallDimensionPosition(wall: ReturnType<typeof projectLevel2D>["walls"][number]) {

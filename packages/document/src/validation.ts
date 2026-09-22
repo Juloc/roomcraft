@@ -1,4 +1,12 @@
-import { CURRENT_SCHEMA_VERSION, type Level, type Opening, type ProjectDocument, type Wall } from "./schema";
+import {
+  CURRENT_SCHEMA_VERSION,
+  type Level,
+  type Opening,
+  type ProjectDocument,
+  type Wall,
+} from "./schema";
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 export function assertIntegerMillimetres(value: number, field: string): void {
   if (!Number.isSafeInteger(value)) {
@@ -14,27 +22,58 @@ export function validateProjectDocument(document: ProjectDocument): void {
     throw new Error("Project document must contain at least one level.");
   }
 
+  const materialIds = new Set<string>();
+  for (const material of document.materials) {
+    if (!material.id || materialIds.has(material.id)) {
+      throw new Error(
+        `Material id ${material.id || "(empty)"} must be unique and non-empty.`,
+      );
+    }
+    materialIds.add(material.id);
+
+    if (!material.name.trim()) {
+      throw new Error(`Material ${material.id} name is required.`);
+    }
+    if (!HEX_COLOR.test(material.baseColorHex)) {
+      throw new Error(
+        `Material ${material.id} baseColorHex must be a #RRGGBB color.`,
+      );
+    }
+    validateUnitInterval(material.roughness, `Material ${material.id} roughness`);
+    validateUnitInterval(material.metalness, `Material ${material.id} metalness`);
+  }
+
   const levelIds = new Set<string>();
   for (const level of document.levels) {
     if (!level.id || levelIds.has(level.id)) {
-      throw new Error(`Level id ${level.id || "(empty)"} must be unique and non-empty.`);
+      throw new Error(
+        `Level id ${level.id || "(empty)"} must be unique and non-empty.`,
+      );
     }
     levelIds.add(level.id);
+
     if (!level.name.trim()) {
       throw new Error(`Level ${level.id} name is required.`);
     }
     assertIntegerMillimetres(level.elevationMm, "level.elevationMm");
-    assertIntegerMillimetres(level.defaultWallHeightMm, "level.defaultWallHeightMm");
+    assertIntegerMillimetres(
+      level.defaultWallHeightMm,
+      "level.defaultWallHeightMm",
+    );
     assertIntegerMillimetres(level.floorThicknessMm, "level.floorThicknessMm");
     if (level.defaultWallHeightMm <= 0) {
-      throw new Error(`Level ${level.id} defaultWallHeightMm must be positive.`);
+      throw new Error(
+        `Level ${level.id} defaultWallHeightMm must be positive.`,
+      );
     }
     if (level.floorThicknessMm < 0) {
       throw new Error(`Level ${level.id} floorThicknessMm cannot be negative.`);
     }
 
     const vertexIds = new Set(level.vertices.map((vertex) => vertex.id));
-    const vertexById = new Map(level.vertices.map((vertex) => [vertex.id, vertex]));
+    const vertexById = new Map(
+      level.vertices.map((vertex) => [vertex.id, vertex]),
+    );
     for (const vertex of level.vertices) {
       assertIntegerMillimetres(vertex.xMm, "vertex.xMm");
       assertIntegerMillimetres(vertex.yMm, "vertex.yMm");
@@ -42,16 +81,33 @@ export function validateProjectDocument(document: ProjectDocument): void {
 
     const wallById = new Map(level.walls.map((wall) => [wall.id, wall]));
     for (const wall of level.walls) {
-      if (!vertexIds.has(wall.startVertexId) || !vertexIds.has(wall.endVertexId)) {
+      if (
+        !vertexIds.has(wall.startVertexId) ||
+        !vertexIds.has(wall.endVertexId)
+      ) {
         throw new Error(`Wall ${wall.id} references a missing vertex.`);
       }
       assertIntegerMillimetres(wall.thicknessMm, "wall.thicknessMm");
-      if (wall.heightMm !== null) assertIntegerMillimetres(wall.heightMm, "wall.heightMm");
+      if (wall.heightMm !== null) {
+        assertIntegerMillimetres(wall.heightMm, "wall.heightMm");
+      }
+      validateMaterialReference(
+        wall.leftMaterialId ?? null,
+        materialIds,
+        `Wall ${wall.id} leftMaterialId`,
+      );
+      validateMaterialReference(
+        wall.rightMaterialId ?? null,
+        materialIds,
+        `Wall ${wall.id} rightMaterialId`,
+      );
     }
 
     for (const opening of level.openings) {
       const wall = wallById.get(opening.wallId);
-      if (!wall) throw new Error(`Opening ${opening.id} references a missing wall.`);
+      if (!wall) {
+        throw new Error(`Opening ${opening.id} references a missing wall.`);
+      }
       validateOpening(level, wall, opening, vertexById);
     }
 
@@ -93,26 +149,49 @@ export function validateProjectDocument(document: ProjectDocument): void {
       }
     }
 
-        for (const blueprint of level.blueprints) {
+    for (const blueprint of level.blueprints) {
       if (!blueprint.id || !blueprint.assetId) {
         throw new Error("Blueprint id and assetId are required.");
       }
-      if (!Number.isSafeInteger(blueprint.sourceWidthPx) || blueprint.sourceWidthPx <= 0) {
-        throw new Error(`Blueprint ${blueprint.id} sourceWidthPx must be a positive integer.`);
+      if (
+        !Number.isSafeInteger(blueprint.sourceWidthPx) ||
+        blueprint.sourceWidthPx <= 0
+      ) {
+        throw new Error(
+          `Blueprint ${blueprint.id} sourceWidthPx must be a positive integer.`,
+        );
       }
-      if (!Number.isSafeInteger(blueprint.sourceHeightPx) || blueprint.sourceHeightPx <= 0) {
-        throw new Error(`Blueprint ${blueprint.id} sourceHeightPx must be a positive integer.`);
+      if (
+        !Number.isSafeInteger(blueprint.sourceHeightPx) ||
+        blueprint.sourceHeightPx <= 0
+      ) {
+        throw new Error(
+          `Blueprint ${blueprint.id} sourceHeightPx must be a positive integer.`,
+        );
       }
       assertIntegerMillimetres(blueprint.originXmm, "blueprint.originXmm");
       assertIntegerMillimetres(blueprint.originYmm, "blueprint.originYmm");
-      if (!Number.isFinite(blueprint.millimetresPerPixel) || blueprint.millimetresPerPixel <= 0) {
-        throw new Error(`Blueprint ${blueprint.id} millimetresPerPixel must be positive and finite.`);
+      if (
+        !Number.isFinite(blueprint.millimetresPerPixel) ||
+        blueprint.millimetresPerPixel <= 0
+      ) {
+        throw new Error(
+          `Blueprint ${blueprint.id} millimetresPerPixel must be positive and finite.`,
+        );
       }
       if (!Number.isFinite(blueprint.rotationDeg)) {
-        throw new Error(`Blueprint ${blueprint.id} rotationDeg must be finite.`);
+        throw new Error(
+          `Blueprint ${blueprint.id} rotationDeg must be finite.`,
+        );
       }
-      if (!Number.isFinite(blueprint.opacity) || blueprint.opacity < 0 || blueprint.opacity > 1) {
-        throw new Error(`Blueprint ${blueprint.id} opacity must be between 0 and 1.`);
+      if (
+        !Number.isFinite(blueprint.opacity) ||
+        blueprint.opacity < 0 ||
+        blueprint.opacity > 1
+      ) {
+        throw new Error(
+          `Blueprint ${blueprint.id} opacity must be between 0 and 1.`,
+        );
       }
       if (!blueprint.crop || typeof blueprint.crop !== "object") {
         throw new Error(`Blueprint ${blueprint.id} crop is required.`);
@@ -124,7 +203,9 @@ export function validateProjectDocument(document: ProjectDocument): void {
         ["heightPx", blueprint.crop.heightPx],
       ] as const) {
         if (!Number.isSafeInteger(value)) {
-          throw new Error(`Blueprint ${blueprint.id} crop.${field} must be an integer pixel value.`);
+          throw new Error(
+            `Blueprint ${blueprint.id} crop.${field} must be an integer pixel value.`,
+          );
         }
       }
       if (
@@ -132,29 +213,78 @@ export function validateProjectDocument(document: ProjectDocument): void {
         blueprint.crop.topPx < 0 ||
         blueprint.crop.widthPx <= 0 ||
         blueprint.crop.heightPx <= 0 ||
-        blueprint.crop.leftPx + blueprint.crop.widthPx > blueprint.sourceWidthPx ||
-        blueprint.crop.topPx + blueprint.crop.heightPx > blueprint.sourceHeightPx
+        blueprint.crop.leftPx + blueprint.crop.widthPx >
+          blueprint.sourceWidthPx ||
+        blueprint.crop.topPx + blueprint.crop.heightPx >
+          blueprint.sourceHeightPx
       ) {
-        throw new Error(`Blueprint ${blueprint.id} crop must stay inside the source image.`);
+        throw new Error(
+          `Blueprint ${blueprint.id} crop must stay inside the source image.`,
+        );
       }
     }
 
-        for (let index = 0; index < level.openings.length; index += 1) {
+    const roomKeys = new Set<string>();
+    for (const finish of level.roomFinishes) {
+      if (!finish.roomKey || roomKeys.has(finish.roomKey)) {
+        throw new Error(
+          `Room finish key ${finish.roomKey || "(empty)"} must be unique and non-empty on level ${level.id}.`,
+        );
+      }
+      roomKeys.add(finish.roomKey);
+      validateMaterialReference(
+        finish.floorMaterialId,
+        materialIds,
+        `Room ${finish.roomKey} floorMaterialId`,
+      );
+      validateMaterialReference(
+        finish.ceilingMaterialId,
+        materialIds,
+        `Room ${finish.roomKey} ceilingMaterialId`,
+      );
+    }
+
+    for (let index = 0; index < level.openings.length; index += 1) {
       const opening = level.openings[index];
       if (!opening) continue;
       const openingStartMm = opening.offsetMm - opening.widthMm / 2;
       const openingEndMm = opening.offsetMm + opening.widthMm / 2;
 
-      for (let otherIndex = index + 1; otherIndex < level.openings.length; otherIndex += 1) {
+      for (
+        let otherIndex = index + 1;
+        otherIndex < level.openings.length;
+        otherIndex += 1
+      ) {
         const other = level.openings[otherIndex];
         if (!other || other.wallId !== opening.wallId) continue;
         const otherStartMm = other.offsetMm - other.widthMm / 2;
         const otherEndMm = other.offsetMm + other.widthMm / 2;
-        if (openingStartMm < otherEndMm && openingEndMm > otherStartMm) {
-          throw new Error(`Openings ${opening.id} and ${other.id} overlap.`);
+        if (
+          openingStartMm < otherEndMm &&
+          openingEndMm > otherStartMm
+        ) {
+          throw new Error(
+            `Openings ${opening.id} and ${other.id} overlap.`,
+          );
         }
       }
     }
+  }
+}
+
+function validateMaterialReference(
+  materialId: string | null,
+  materialIds: ReadonlySet<string>,
+  field: string,
+): void {
+  if (materialId !== null && !materialIds.has(materialId)) {
+    throw new Error(`${field} references missing material ${materialId}.`);
+  }
+}
+
+function validateUnitInterval(value: number, field: string): void {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${field} must be between 0 and 1.`);
   }
 }
 
@@ -169,23 +299,36 @@ function validateOpening(
   assertIntegerMillimetres(opening.heightMm, "opening.heightMm");
   assertIntegerMillimetres(opening.sillHeightMm, "opening.sillHeightMm");
 
-  if (opening.widthMm <= 0 || opening.heightMm <= 0 || opening.sillHeightMm < 0) {
+  if (
+    opening.widthMm <= 0 ||
+    opening.heightMm <= 0 ||
+    opening.sillHeightMm < 0
+  ) {
     throw new Error(`Opening ${opening.id} dimensions are invalid.`);
   }
 
   const start = vertexById.get(wall.startVertexId);
   const end = vertexById.get(wall.endVertexId);
-  if (!start || !end) throw new Error(`Wall ${wall.id} references a missing vertex.`);
+  if (!start || !end) {
+    throw new Error(`Wall ${wall.id} references a missing vertex.`);
+  }
 
-  const wallLengthMm = Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm);
+  const wallLengthMm = Math.hypot(
+    end.xMm - start.xMm,
+    end.yMm - start.yMm,
+  );
   const wallHeightMm = wall.heightMm ?? level.defaultWallHeightMm;
   const openingStartMm = opening.offsetMm - opening.widthMm / 2;
   const openingEndMm = opening.offsetMm + opening.widthMm / 2;
 
   if (openingStartMm < 0 || openingEndMm > wallLengthMm) {
-    throw new Error(`Opening ${opening.id} does not fit inside wall ${wall.id}.`);
+    throw new Error(
+      `Opening ${opening.id} does not fit inside wall ${wall.id}.`,
+    );
   }
   if (opening.sillHeightMm + opening.heightMm > wallHeightMm) {
-    throw new Error(`Opening ${opening.id} exceeds wall ${wall.id} height.`);
+    throw new Error(
+      `Opening ${opening.id} exceeds wall ${wall.id} height.`,
+    );
   }
 }

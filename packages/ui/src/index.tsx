@@ -61,6 +61,8 @@ export { NumberField } from "./NumberField";
 export type { NumberFieldProps } from "./NumberField";
 export { TextField } from "./TextField";
 export type { TextFieldProps } from "./TextField";
+export { SelectField } from "./SelectField";
+export type { SelectFieldOption, SelectFieldProps } from "./SelectField";
 export { formatNumberInput, parseNumberInput } from "./number";
 
 export interface LayerListItem {

@@ -354,4 +354,92 @@ describe("project document validation", () => {
     );
   });
 
+  it("migrates a v4 project to v5 with project materials and empty room finishes", () => {
+    const legacy = {
+      schemaVersion: 4,
+      id: "project_v4",
+      name: "Materials V4",
+      settings: {
+        unitSystem: "metric",
+        gridSizeMm: 100,
+        angleSnapDeg: 15,
+      },
+      levels: [
+        {
+          id: "level_ground",
+          name: "Ground floor",
+          elevationMm: 0,
+          defaultWallHeightMm: 2500,
+          floorThicknessMm: 200,
+          vertices: [],
+          walls: [],
+          openings: [],
+          objects: [],
+          blueprints: [],
+        },
+      ],
+    } as const;
+
+    const migrated = parseProjectDocument(legacy);
+
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.materials.map((material) => material.id)).toContain(
+      "material:white",
+    );
+    expect(migrated.levels[0]?.roomFinishes).toEqual([]);
+    expect("materials" in legacy).toBe(false);
+    expect("roomFinishes" in legacy.levels[0]).toBe(false);
+  });
+
+  it("validates material colors and semantic surface references", () => {
+    const document = createEmptyProject("project_materials");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    level.vertices.push(
+      { id: "vertex_a", xMm: 0, yMm: 0 },
+      { id: "vertex_b", xMm: 4000, yMm: 0 },
+    );
+    level.walls.push({
+      id: "wall_a",
+      startVertexId: "vertex_a",
+      endVertexId: "vertex_b",
+      thicknessMm: 120,
+      heightMm: null,
+      leftMaterialId: "material:beige",
+      rightMaterialId: "material:white",
+    });
+    level.roomFinishes.push({
+      roomKey: "room:a|b|c|d",
+      floorMaterialId: "material:oak",
+      ceilingMaterialId: "material:white",
+    });
+
+    expect(() => validateProjectDocument(document)).not.toThrow();
+
+    document.materials[0] = {
+      ...document.materials[0]!,
+      baseColorHex: "white",
+    };
+    expect(() => validateProjectDocument(document)).toThrow(
+      "baseColorHex must be a #RRGGBB color",
+    );
+  });
+
+  it("rejects missing material references", () => {
+    const document = createEmptyProject("project_material_refs");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    level.roomFinishes.push({
+      roomKey: "room:test",
+      floorMaterialId: "material:missing",
+      ceilingMaterialId: null,
+    });
+
+    expect(() => validateProjectDocument(document)).toThrow(
+      "references missing material material:missing",
+    );
+  });
+
 });

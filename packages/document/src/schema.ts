@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 4 as const;
+export const CURRENT_SCHEMA_VERSION = 5 as const;
 
 export type EntityId = string;
 export type Millimetres = number;
@@ -7,6 +7,7 @@ export interface ProjectDocument {
   schemaVersion: typeof CURRENT_SCHEMA_VERSION;
   id: EntityId;
   name: string;
+  materials: MaterialDefinition[];
   settings: ProjectSettings;
   levels: Level[];
 }
@@ -15,6 +16,14 @@ export interface ProjectSettings {
   unitSystem: "metric";
   gridSizeMm: Millimetres;
   angleSnapDeg: number;
+}
+
+export interface MaterialDefinition {
+  id: EntityId;
+  name: string;
+  baseColorHex: string;
+  roughness: number;
+  metalness: number;
 }
 
 export interface Level {
@@ -28,6 +37,13 @@ export interface Level {
   openings: Opening[];
   objects: ObjectInstance[];
   blueprints: BlueprintReference[];
+  roomFinishes: RoomSurfaceFinish[];
+}
+
+export interface RoomSurfaceFinish {
+  roomKey: string;
+  floorMaterialId: EntityId | null;
+  ceilingMaterialId: EntityId | null;
 }
 
 export interface Vertex {
@@ -42,6 +58,8 @@ export interface Wall {
   endVertexId: EntityId;
   thicknessMm: Millimetres;
   heightMm: Millimetres | null;
+  leftMaterialId?: EntityId | null;
+  rightMaterialId?: EntityId | null;
 }
 
 export type OpeningType = "door" | "window" | "passage";
@@ -100,11 +118,47 @@ export interface BlueprintReference {
   visible: boolean;
 }
 
+export const DEFAULT_MATERIALS = [
+  {
+    id: "material:white",
+    name: "Warm white",
+    baseColorHex: "#F2F0EB",
+    roughness: 0.9,
+    metalness: 0,
+  },
+  {
+    id: "material:beige",
+    name: "Warm beige",
+    baseColorHex: "#D8CBB8",
+    roughness: 0.9,
+    metalness: 0,
+  },
+  {
+    id: "material:oak",
+    name: "Oak",
+    baseColorHex: "#B8895B",
+    roughness: 0.75,
+    metalness: 0,
+  },
+  {
+    id: "material:concrete",
+    name: "Concrete",
+    baseColorHex: "#A7A5A0",
+    roughness: 0.95,
+    metalness: 0,
+  },
+] as const satisfies readonly MaterialDefinition[];
+
+export function createDefaultMaterials(): MaterialDefinition[] {
+  return DEFAULT_MATERIALS.map((material) => ({ ...material }));
+}
+
 export function createEmptyProject(id: EntityId, name = "Untitled project"): ProjectDocument {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     id,
     name,
+    materials: createDefaultMaterials(),
     settings: {
       unitSystem: "metric",
       gridSizeMm: 100,
@@ -122,6 +176,7 @@ export function createEmptyProject(id: EntityId, name = "Untitled project"): Pro
         openings: [],
         objects: [],
         blueprints: [],
+        roomFinishes: [],
       },
     ],
   };

@@ -182,6 +182,8 @@ export interface AddWallInput {
   end: WallEndpoint;
   thicknessMm: number;
   heightMm?: number | null;
+  leftMaterialId?: EntityId | null;
+  rightMaterialId?: EntityId | null;
 }
 
 export class AddWallCommand implements EditorCommand {
@@ -221,6 +223,8 @@ export class AddWallCommand implements EditorCommand {
       endVertexId,
       thicknessMm: this.input.thicknessMm,
       heightMm: this.input.heightMm ?? null,
+      leftMaterialId: this.input.leftMaterialId ?? null,
+      rightMaterialId: this.input.rightMaterialId ?? null,
     };
 
     const nextLevel: Level = {
@@ -656,6 +660,118 @@ export class RemoveObjectCommand implements EditorCommand {
   }
 }
 
+export interface SetWallMaterialsInput {
+  levelId: EntityId;
+  wallId: EntityId;
+  leftMaterialId?: EntityId | null;
+  rightMaterialId?: EntityId | null;
+}
+
+export class SetWallMaterialsCommand implements EditorCommand {
+  readonly type = "SetWallMaterials";
+
+  constructor(private readonly input: SetWallMaterialsInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    const wall = level.walls.find((candidate) => candidate.id === this.input.wallId);
+    if (!wall) throw new Error(`Wall ${this.input.wallId} does not exist.`);
+
+    const previous: SetWallMaterialsInput = {
+      levelId: level.id,
+      wallId: wall.id,
+      leftMaterialId: wall.leftMaterialId ?? null,
+      rightMaterialId: wall.rightMaterialId ?? null,
+    };
+
+    const nextWall: Wall = {
+      ...wall,
+      leftMaterialId:
+        this.input.leftMaterialId === undefined
+          ? wall.leftMaterialId ?? null
+          : this.input.leftMaterialId,
+      rightMaterialId:
+        this.input.rightMaterialId === undefined
+          ? wall.rightMaterialId ?? null
+          : this.input.rightMaterialId,
+    };
+    const nextLevel: Level = {
+      ...level,
+      walls: level.walls.map((candidate) =>
+        candidate.id === wall.id ? nextWall : candidate,
+      ),
+    };
+    const nextDocument = replaceLevel(document, nextLevel);
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new SetWallMaterialsCommand(previous),
+    };
+  }
+}
+
+export interface SetRoomSurfaceMaterialsInput {
+  levelId: EntityId;
+  roomKey: string;
+  floorMaterialId?: EntityId | null;
+  ceilingMaterialId?: EntityId | null;
+}
+
+export class SetRoomSurfaceMaterialsCommand implements EditorCommand {
+  readonly type = "SetRoomSurfaceMaterials";
+
+  constructor(private readonly input: SetRoomSurfaceMaterialsInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    const existing = level.roomFinishes.find(
+      (finish) => finish.roomKey === this.input.roomKey,
+    );
+
+    const previous: SetRoomSurfaceMaterialsInput = {
+      levelId: level.id,
+      roomKey: this.input.roomKey,
+      floorMaterialId: existing?.floorMaterialId ?? null,
+      ceilingMaterialId: existing?.ceilingMaterialId ?? null,
+    };
+
+    const floorMaterialId =
+      this.input.floorMaterialId === undefined
+        ? existing?.floorMaterialId ?? null
+        : this.input.floorMaterialId;
+    const ceilingMaterialId =
+      this.input.ceilingMaterialId === undefined
+        ? existing?.ceilingMaterialId ?? null
+        : this.input.ceilingMaterialId;
+
+    let roomFinishes = level.roomFinishes.filter(
+      (finish) => finish.roomKey !== this.input.roomKey,
+    );
+    if (floorMaterialId !== null || ceilingMaterialId !== null) {
+      roomFinishes = [
+        ...roomFinishes,
+        {
+          roomKey: this.input.roomKey,
+          floorMaterialId,
+          ceilingMaterialId,
+        },
+      ];
+    }
+
+    const nextDocument = replaceLevel(document, {
+      ...level,
+      roomFinishes,
+    });
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new SetRoomSurfaceMaterialsCommand(previous),
+    };
+  }
+}
+
 export interface AddOpeningInput {
   levelId: EntityId;
   opening: Opening;
@@ -773,6 +889,8 @@ class RemoveWallCommand implements EditorCommand {
         end,
         thicknessMm: this.wall.thicknessMm,
         heightMm: this.wall.heightMm,
+        leftMaterialId: this.wall.leftMaterialId ?? null,
+        rightMaterialId: this.wall.rightMaterialId ?? null,
       }),
     };
   }

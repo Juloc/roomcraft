@@ -63,6 +63,7 @@ describe("duplicateLevelShell", () => {
     expect(duplicate.openings).toHaveLength(1);
     expect(duplicate.objects).toEqual([]);
     expect(duplicate.blueprints).toEqual([]);
+    expect(duplicate.roomFinishes).toEqual([]);
 
     const wall = duplicate.walls[0];
     const opening = duplicate.openings[0];
