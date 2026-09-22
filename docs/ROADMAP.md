@@ -326,7 +326,7 @@ These are continuous requirements, not separate cleanup phases.
 - command undo/redo tests
 - document migration fixtures
 - PostgreSQL integration smoke tests
-- Playwright central flow as soon as selection/exact dimensions are available
+- Playwright full-stack critical flow (first-time setup + owned project + PostgreSQL + ASP.NET + Chromium) ✅
 
 ### Security and reliability
 - validate uploaded assets
@@ -369,7 +369,7 @@ Features outside this path should not delay the core planning workflow.
 
 ## V1 acceptance test
 
-One automated end-to-end test should eventually protect this complete path:
+A full-stack Playwright test protects the core path below; GLB-import-specific browser coverage remains a separate follow-up:
 
 ```text
 create project
