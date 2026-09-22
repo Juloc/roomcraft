@@ -61,5 +61,6 @@ export function duplicateLevelShell(
     openings,
     objects: [],
     blueprints: [],
+    roomFinishes: [],
   };
 }
