@@ -5,6 +5,7 @@ import {
   exportProjectGlb,
   glbProjectFileName,
   parseRoomCraftDocumentFile,
+  rasterFloorPlanFileName,
   roomCraftFileName,
   serializeRoomCraftDocument,
 } from "../src";
@@ -30,6 +31,12 @@ describe("RoomCraft export", () => {
     const source = serializeRoomCraftDocument(document);
     expect(parseRoomCraftDocumentFile(source)).toEqual(document);
     expect(roomCraftFileName(document)).toBe("My apartment.roomcraft");
+    expect(
+      rasterFloorPlanFileName(document, document.levels[0]!.id, "png"),
+    ).toBe("My apartment-Ground floor.png");
+    expect(
+      rasterFloorPlanFileName(document, document.levels[0]!.id, "jpeg"),
+    ).toBe("My apartment-Ground floor.jpg");
   });
 
   it("exports semantic floor-plan geometry as standalone svg", () => {
