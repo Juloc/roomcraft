@@ -494,3 +494,65 @@ body {
   background: var(--rc-surface);
   font-size: 0.78rem;
 }
+
+.furniture-palette {
+  display: grid;
+  gap: var(--rc-space-3);
+  padding-top: var(--rc-space-4);
+  border-top: 1px solid var(--rc-border);
+}
+
+.furniture-palette__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rc-space-2);
+}
+
+.property-hint {
+  color: var(--rc-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.selection-actions {
+  display: flex;
+  gap: var(--rc-space-2);
+  flex-wrap: wrap;
+}
+
+.plan-object {
+  cursor: move;
+}
+
+.plan-object--locked {
+  cursor: default;
+}
+
+.plan-object__footprint {
+  fill: var(--rc-surface);
+  fill-opacity: 0.86;
+  stroke: var(--rc-text-muted);
+  stroke-width: 12;
+  vector-effect: non-scaling-stroke;
+}
+
+.plan-object--selected .plan-object__footprint {
+  stroke: var(--rc-accent);
+  stroke-width: 20;
+}
+
+.plan-object__front {
+  stroke: var(--rc-text);
+  stroke-width: 18;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.plan-object__label {
+  fill: var(--rc-text);
+  stroke: var(--rc-surface);
+  stroke-width: 14;
+  paint-order: stroke fill;
+  font-size: 135px;
+  font-weight: 700;
+}
