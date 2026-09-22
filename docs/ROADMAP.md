@@ -130,18 +130,19 @@ Next:
 
 Goal: let users trace an existing plan without CAD knowledge.
 
-- image import through asset abstraction 🚧
+- image import through asset abstraction ✅
 - PDF-page import ◻
-- blueprint opacity 🚧
-- rotate 🚧
+- blueprint opacity ✅
+- rotate ✅
 - crop ✅
-- calibration by drawing a line over a known distance 🚧
-- lock blueprint layer 🚧
-- blueprint position / drag 🚧
-- hide/show 🚧
-- per-level blueprint
-- preserve source asset separately from editor geometry
+- calibration by drawing a line over a known distance ✅
+- lock blueprint layer ✅
+- blueprint position / drag ✅
+- hide/show ✅
+- per-level blueprint ✅
+- preserve source asset separately from editor geometry ✅
 - schema v3 crop migration ✅
+- layer ordering / deletion 🚧
 
 Definition of done:
 - user can import a photographed/scanned plan, calibrate one known wall and trace accurate walls over it
