@@ -63,6 +63,12 @@ export class RoomSceneRenderer {
     roughness: 0.72,
     metalness: 0,
   });
+  private readonly defaultSurfaceMaterial = new MeshStandardMaterial({
+    color: new Color(0xe4e0d8),
+    roughness: 0.92,
+    metalness: 0,
+    side: DoubleSide,
+  });
   private readonly objectMaterial = new MeshStandardMaterial({
     color: new Color(0xa89f91),
     roughness: 0.78,
@@ -177,6 +183,7 @@ export class RoomSceneRenderer {
     this.materialDefinitionById.clear();
     this.wallMaterial.dispose();
     this.selectedWallMaterial.dispose();
+    this.defaultSurfaceMaterial.dispose();
     this.objectMaterial.dispose();
     this.selectedObjectMaterial.dispose();
     this.grid.geometry.dispose();
@@ -407,7 +414,10 @@ export class RoomSceneRenderer {
     shape.closePath();
 
     const geometry = new ShapeGeometry(shape);
-    const baseMaterial = this.materialForId(materialId, this.wallMaterial);
+    const baseMaterial = this.materialForId(
+      materialId,
+      this.defaultSurfaceMaterial,
+    );
     const mesh = new Mesh(
       geometry,
       this.selectedId === roomKey ? this.selectedWallMaterial : baseMaterial,
@@ -652,7 +662,7 @@ export class RoomSceneRenderer {
         ? this.selectedWallMaterial
         : this.materialForId(
             (mesh.userData.roomcraftMaterialId as string | null | undefined) ?? null,
-            this.wallMaterial,
+            this.defaultSurfaceMaterial,
           );
     }
 
