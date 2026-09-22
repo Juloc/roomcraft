@@ -18,6 +18,7 @@ import {
   UpdateBlueprintCommand,
   UpdateLevelCommand,
   DEFAULT_PLAN_CAMERA,
+  duplicateLevelShell,
   fitPlanCamera,
   panPlanCamera,
   planViewBox,
@@ -52,6 +53,7 @@ import { assetContentUrl, readImageDimensions, uploadBlueprintAsset } from "./as
 import { useProjectSession, type SaveState } from "./use-project-session";
 
 type ViewMode = "2d" | "3d";
+type GhostMode = "off" | "below" | "above";
 type EditorTool = "select" | "wall" | "door" | "window" | "blueprint-calibrate";
 type PlanPoint = PlanSnapResult["point"];
 
@@ -85,6 +87,7 @@ export function App() {
 
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
+  const [ghostMode, setGhostMode] = useState<GhostMode>("off");
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
   const blueprintFileRef = useRef<HTMLInputElement | null>(null);
@@ -118,6 +121,33 @@ export function App() {
 
   const levelId = level.id;
   const projection = projectLevel2D(document, levelId);
+  const levelsByElevation = [...document.levels].sort(
+    (a, b) => a.elevationMm - b.elevationMm || a.id.localeCompare(b.id),
+  );
+  const elevationIndex = levelsByElevation.findIndex(
+    (candidate) => candidate.id === levelId,
+  );
+  const belowLevel =
+    elevationIndex > 0 ? levelsByElevation[elevationIndex - 1] ?? null : null;
+  const aboveLevel =
+    elevationIndex >= 0 && elevationIndex < levelsByElevation.length - 1
+      ? levelsByElevation[elevationIndex + 1] ?? null
+      : null;
+  const ghostLevel =
+    ghostMode === "below"
+      ? belowLevel
+      : ghostMode === "above"
+        ? aboveLevel
+        : null;
+  const ghostProjection = ghostLevel
+    ? projectLevel2D(document, ghostLevel.id)
+    : null;
+  const effectiveGhostMode: GhostMode = ghostProjection ? ghostMode : "off";
+  const ghostOptions = [
+    { value: "off" as const, label: "Ghost off" },
+    ...(belowLevel ? [{ value: "below" as const, label: "Below" }] : []),
+    ...(aboveLevel ? [{ value: "above" as const, label: "Above" }] : []),
+  ];
   const selectedWallId =
     selection.primary?.kind === "wall" &&
     projection.walls.some((wall) => wall.id === selection.primary?.id)
@@ -183,6 +213,39 @@ export function App() {
     cancelTransient();
     setSelection(EMPTY_SELECTION);
     setActiveLevelId(id);
+  }
+
+  function duplicateActiveLevelShell() {
+    const current = currentLevel();
+    if (!current) return;
+
+    const currentIndex = document.levels.findIndex(
+      (candidate) => candidate.id === current.id,
+    );
+    if (currentIndex < 0) return;
+
+    const id = createEntityId("level");
+    const duplicate = duplicateLevelShell(current, {
+      levelId: id,
+      name: `${current.name} copy`,
+      elevationMm:
+        current.elevationMm +
+        current.defaultWallHeightMm +
+        current.floorThicknessMm,
+      createId: (prefix) => createEntityId(prefix),
+    });
+
+    session.execute(
+      new AddLevelCommand({
+        level: duplicate,
+        index: currentIndex + 1,
+      }),
+    );
+
+    cancelTransient();
+    setSelection(EMPTY_SELECTION);
+    setActiveLevelId(id);
+    setGhostMode("below");
   }
 
   function updateActiveLevel(
@@ -639,6 +702,8 @@ export function App() {
               openings={projection.openings}
               rooms={projection.rooms}
               topologyIssues={projection.topologyIssues}
+              ghostProjection={ghostProjection}
+              ghostLabel={ghostLevel?.name ?? null}
               activeTool={activeTool}
               selectedWallId={selectedWallId}
               selectedBlueprintId={selectedBlueprintId}
@@ -734,6 +799,13 @@ export function App() {
                     Add level
                   </Button>
                   <Button
+                    variant="secondary"
+                    onClick={duplicateActiveLevelShell}
+                    title="Copy walls, vertices and openings into a new level"
+                  >
+                    Duplicate shell
+                  </Button>
+                  <Button
                     variant="ghost"
                     disabled={document.levels.length <= 1}
                     onClick={removeActiveLevel}
@@ -741,6 +813,12 @@ export function App() {
                     Delete level
                   </Button>
                 </div>
+                <SegmentedControl
+                  value={effectiveGhostMode}
+                  options={ghostOptions}
+                  onChange={setGhostMode}
+                  ariaLabel="Reference level overlay"
+                />
               </div>
 
               <dl className="stats">
@@ -1072,6 +1150,8 @@ interface PlanCanvasProps {
   openings: ReturnType<typeof projectLevel2D>["openings"];
   rooms: ReturnType<typeof projectLevel2D>["rooms"];
   topologyIssues: ReturnType<typeof projectLevel2D>["topologyIssues"];
+  ghostProjection: ReturnType<typeof projectLevel2D> | null;
+  ghostLabel: string | null;
   activeTool: EditorTool;
   selectedWallId: string | null;
   selectedBlueprintId: string | null;
@@ -1097,6 +1177,8 @@ function PlanCanvas({
   openings,
   rooms,
   topologyIssues,
+  ghostProjection,
+  ghostLabel,
   activeTool,
   selectedWallId,
   selectedBlueprintId,
@@ -1433,6 +1515,32 @@ function PlanCanvas({
               </g>
             );
           })}
+        {ghostProjection ? (
+          <g className="plan-level-ghost" pointerEvents="none">
+            {ghostProjection.walls.map((wall) => (
+              <line
+                key={wall.id}
+                x1={wall.x1Mm}
+                y1={wall.y1Mm}
+                x2={wall.x2Mm}
+                y2={wall.y2Mm}
+                strokeWidth={Math.max(wall.thicknessMm, camera.mmPerPixel * 2)}
+                className="plan-level-ghost__wall"
+                strokeLinecap="square"
+              />
+            ))}
+            {ghostProjection.openings.map((opening) => (
+              <line
+                key={opening.id}
+                x1={opening.x1Mm}
+                y1={opening.y1Mm}
+                x2={opening.x2Mm}
+                y2={opening.y2Mm}
+                className="plan-level-ghost__opening"
+              />
+            ))}
+          </g>
+        ) : null}
         {rooms.map((room) => (
           <g key={room.key} className="plan-room" pointerEvents="none">
             <polygon
@@ -1594,6 +1702,9 @@ function PlanCanvas({
       </svg>
 
       <div className="plan-viewport__controls">
+        {ghostProjection && ghostLabel ? (
+          <span className="plan-viewport__ghost-label">Ghost: {ghostLabel}</span>
+        ) : null}
         <Button variant="secondary" onClick={fitPlan} title="Fit the complete plan in view">
           Fit
         </Button>
