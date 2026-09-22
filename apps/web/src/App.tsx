@@ -31,6 +31,7 @@ import {
   panPlanCamera,
   planViewBox,
   selectOnly,
+  snapObjectPosition,
   snapOpeningToWall,
   zoomPlanCameraAt,
   snapPlanPoint,
@@ -340,15 +341,47 @@ export function App() {
     });
   }
 
-  function handlePlanPointerMove(point: PlanPoint) {
+  function snapFurniturePosition(
+    point: PlanPoint,
+    subject: {
+      id?: string;
+      widthMm: number;
+      depthMm: number;
+      rotationDeg: number;
+    },
+  ): PlanSnapResult | null {
+    const current = currentLevel();
+    if (!current) return null;
+
+    return snapObjectPosition(point, subject, current, {
+      gridSizeMm: document.settings.gridSizeMm,
+    });
+  }
+
+    function handlePlanPointerMove(point: PlanPoint) {
     if (activeTool === "select" || activeTool === "blueprint-calibrate") {
       setHoverSnap(null);
       setOpeningHover(null);
       return;
     }
 
-    if (activeTool === "wall" || activeTool === "furniture") {
+    if (activeTool === "wall") {
       setHoverSnap(snap(point));
+      setOpeningHover(null);
+      return;
+    }
+
+    if (activeTool === "furniture") {
+      const definition = getBuiltinAssetDefinition(activeFurnitureAssetId);
+      setHoverSnap(
+        definition
+          ? snapFurniturePosition(point, {
+              widthMm: definition.defaultDimensionsMm.widthMm,
+              depthMm: definition.defaultDimensionsMm.depthMm,
+              rotationDeg: 0,
+            })
+          : null,
+      );
       setOpeningHover(null);
       return;
     }
@@ -442,8 +475,14 @@ export function App() {
 
   function handleFurniturePoint(point: PlanPoint) {
     const definition = getBuiltinAssetDefinition(activeFurnitureAssetId);
-    const snapped = snap(point);
-    if (!definition || !snapped) return;
+    if (!definition) return;
+
+    const snapped = snapFurniturePosition(point, {
+      widthMm: definition.defaultDimensionsMm.widthMm,
+      depthMm: definition.defaultDimensionsMm.depthMm,
+      rotationDeg: 0,
+    });
+    if (!snapped) return;
 
     const object: ObjectInstance = {
       id: createEntityId("object"),
@@ -647,15 +686,62 @@ export function App() {
   }
 
   function moveObject(objectId: string, xMm: number, yMm: number) {
-    const object = currentLevel()?.objects.find(
+    const current = currentLevel();
+    const object = current?.objects.find(
       (candidate) => candidate.id === objectId,
     );
-    if (!object || object.locked) return;
+    if (!current || !object || object.locked) return;
+
+    const snapped = snapObjectPosition(
+      { xMm, yMm },
+      {
+        id: object.id,
+        widthMm: object.widthMm,
+        depthMm: object.depthMm,
+        rotationDeg: object.rotationDeg,
+      },
+      current,
+      { gridSizeMm: document.settings.gridSizeMm },
+    );
 
     updateObject(objectId, {
-      xMm: Math.round(xMm),
-      yMm: Math.round(yMm),
+      xMm: Math.round(snapped.point.xMm),
+      yMm: Math.round(snapped.point.yMm),
     });
+  }
+
+  function duplicateSelectedObject() {
+    const current = currentLevel();
+    if (!current || !selectedObject) return;
+
+    const id = createEntityId("object");
+    const snapped = snapObjectPosition(
+      {
+        xMm:
+          selectedObject.xMm +
+          selectedObject.widthMm +
+          document.settings.gridSizeMm,
+        yMm: selectedObject.yMm,
+      },
+      {
+        id,
+        widthMm: selectedObject.widthMm,
+        depthMm: selectedObject.depthMm,
+        rotationDeg: selectedObject.rotationDeg,
+      },
+      current,
+      { gridSizeMm: document.settings.gridSizeMm },
+    );
+    const duplicate: ObjectInstance = {
+      ...selectedObject,
+      id,
+      xMm: Math.round(snapped.point.xMm),
+      yMm: Math.round(snapped.point.yMm),
+      locked: false,
+    };
+
+    session.execute(new AddObjectCommand({ levelId, object: duplicate }));
+    setSelection(selectOnly({ kind: "object", id }));
   }
 
   function removeSelectedObject() {
@@ -1373,6 +1459,9 @@ export function App() {
                       }
                     >
                       {selectedObject.locked ? "Unlock" : "Lock"}
+                    </Button>
+                    <Button variant="secondary" onClick={duplicateSelectedObject}>
+                      Duplicate
                     </Button>
                     <Button variant="ghost" onClick={removeSelectedObject}>
                       Delete

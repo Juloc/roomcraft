@@ -243,8 +243,13 @@ body {
   vector-effect: non-scaling-stroke;
 }
 
-.snap-marker--vertex {
+.snap-marker--vertex,
+.snap-marker--object {
   fill: var(--rc-accent-bg);
+}
+
+.snap-marker--object {
+  stroke-width: 30;
 }
 
 .opening-marker {
