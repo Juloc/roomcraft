@@ -239,6 +239,12 @@ describe("CommandHistory", () => {
           assetId: "asset_1",
           sourceWidthPx: 2000,
           sourceHeightPx: 1000,
+          crop: {
+            leftPx: 0,
+            topPx: 0,
+            widthPx: 2000,
+            heightPx: 1000,
+          },
           originXmm: 0,
           originYmm: 0,
           millimetresPerPixel: 2,

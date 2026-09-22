@@ -104,7 +104,7 @@ describe("project document validation", () => {
       "Opening door_a does not fit inside wall wall_a.",
     );
   });
-  it("migrates a v1 project to v2 without mutating the source", () => {
+  it("migrates a v1 project through to the current schema without mutating the source", () => {
     const legacy = {
       schemaVersion: 1,
       id: "project_v1",
@@ -145,6 +145,12 @@ describe("project document validation", () => {
       assetId: "asset_1",
       sourceWidthPx: 2000,
       sourceHeightPx: 1200,
+      crop: {
+        leftPx: 100,
+        topPx: 50,
+        widthPx: 1800,
+        heightPx: 1000,
+      },
       originXmm: -500,
       originYmm: -250,
       millimetresPerPixel: 2.5,
@@ -155,6 +161,86 @@ describe("project document validation", () => {
     });
 
     expect(() => validateProjectDocument(document)).not.toThrow();
+  });
+
+  it("migrates a v2 blueprint to a full-image crop", () => {
+    const legacy = {
+      schemaVersion: 2,
+      id: "project_v2",
+      name: "Blueprint V2",
+      settings: {
+        unitSystem: "metric",
+        gridSizeMm: 100,
+        angleSnapDeg: 15,
+      },
+      levels: [
+        {
+          id: "level_ground",
+          name: "Ground floor",
+          elevationMm: 0,
+          defaultWallHeightMm: 2500,
+          vertices: [],
+          walls: [],
+          openings: [],
+          objects: [],
+          blueprints: [
+            {
+              id: "blueprint_1",
+              assetId: "asset_1",
+              sourceWidthPx: 2000,
+              sourceHeightPx: 1200,
+              originXmm: 0,
+              originYmm: 0,
+              millimetresPerPixel: 2,
+              rotationDeg: 0,
+              opacity: 0.5,
+              locked: true,
+              visible: true,
+            },
+          ],
+        },
+      ],
+    } as const;
+
+    const migrated = parseProjectDocument(legacy);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.levels[0]?.blueprints[0]?.crop).toEqual({
+      leftPx: 0,
+      topPx: 0,
+      widthPx: 2000,
+      heightPx: 1200,
+    });
+    expect("crop" in legacy.levels[0].blueprints[0]).toBe(false);
+  });
+
+  it("rejects a crop outside the source image", () => {
+    const document = createEmptyProject("project_invalid_crop");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    level.blueprints.push({
+      id: "blueprint_1",
+      assetId: "asset_1",
+      sourceWidthPx: 1000,
+      sourceHeightPx: 800,
+      crop: {
+        leftPx: 900,
+        topPx: 0,
+        widthPx: 200,
+        heightPx: 800,
+      },
+      originXmm: 0,
+      originYmm: 0,
+      millimetresPerPixel: 2,
+      rotationDeg: 0,
+      opacity: 0.5,
+      locked: false,
+      visible: true,
+    });
+
+    expect(() => validateProjectDocument(document)).toThrow(
+      "crop must stay inside the source image",
+    );
   });
 
   it("rejects documents from a future schema version", () => {

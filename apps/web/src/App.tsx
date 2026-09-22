@@ -274,6 +274,12 @@ export function App() {
         assetId: asset.id,
         sourceWidthPx: dimensions.widthPx,
         sourceHeightPx: dimensions.heightPx,
+        crop: {
+          leftPx: 0,
+          topPx: 0,
+          widthPx: dimensions.widthPx,
+          heightPx: dimensions.heightPx,
+        },
         originXmm: 0,
         originYmm: 0,
         millimetresPerPixel,
@@ -637,7 +643,139 @@ export function App() {
                       updateSelectedBlueprint({ opacity: value / 100 })
                     }
                   />
-                  <Button variant="secondary" onClick={startBlueprintCalibration}>
+                  <div className="blueprint-crop-fields">
+                    <NumberField
+                      label="Crop left"
+                      value={selectedBlueprint.crop.leftPx}
+                      min={0}
+                      max={
+                        selectedBlueprint.crop.leftPx +
+                        selectedBlueprint.crop.widthPx -
+                        1
+                      }
+                      step={1}
+                      suffix="px"
+                      disabled={selectedBlueprint.locked}
+                      onCommit={(value) => {
+                        const rightEdge =
+                          selectedBlueprint.crop.leftPx +
+                          selectedBlueprint.crop.widthPx;
+                        const leftPx = Math.round(value);
+                        updateSelectedBlueprint({
+                          crop: {
+                            ...selectedBlueprint.crop,
+                            leftPx,
+                            widthPx: rightEdge - leftPx,
+                          },
+                        });
+                      }}
+                    />
+                    <NumberField
+                      label="Crop top"
+                      value={selectedBlueprint.crop.topPx}
+                      min={0}
+                      max={
+                        selectedBlueprint.crop.topPx +
+                        selectedBlueprint.crop.heightPx -
+                        1
+                      }
+                      step={1}
+                      suffix="px"
+                      disabled={selectedBlueprint.locked}
+                      onCommit={(value) => {
+                        const bottomEdge =
+                          selectedBlueprint.crop.topPx +
+                          selectedBlueprint.crop.heightPx;
+                        const topPx = Math.round(value);
+                        updateSelectedBlueprint({
+                          crop: {
+                            ...selectedBlueprint.crop,
+                            topPx,
+                            heightPx: bottomEdge - topPx,
+                          },
+                        });
+                      }}
+                    />
+                    <NumberField
+                      label="Crop right"
+                      value={
+                        selectedBlueprint.sourceWidthPx -
+                        selectedBlueprint.crop.leftPx -
+                        selectedBlueprint.crop.widthPx
+                      }
+                      min={0}
+                      max={
+                        selectedBlueprint.sourceWidthPx -
+                        selectedBlueprint.crop.leftPx -
+                        1
+                      }
+                      step={1}
+                      suffix="px"
+                      disabled={selectedBlueprint.locked}
+                      onCommit={(value) => {
+                        const rightPx = Math.round(value);
+                        updateSelectedBlueprint({
+                          crop: {
+                            ...selectedBlueprint.crop,
+                            widthPx:
+                              selectedBlueprint.sourceWidthPx -
+                              selectedBlueprint.crop.leftPx -
+                              rightPx,
+                          },
+                        });
+                      }}
+                    />
+                    <NumberField
+                      label="Crop bottom"
+                      value={
+                        selectedBlueprint.sourceHeightPx -
+                        selectedBlueprint.crop.topPx -
+                        selectedBlueprint.crop.heightPx
+                      }
+                      min={0}
+                      max={
+                        selectedBlueprint.sourceHeightPx -
+                        selectedBlueprint.crop.topPx -
+                        1
+                      }
+                      step={1}
+                      suffix="px"
+                      disabled={selectedBlueprint.locked}
+                      onCommit={(value) => {
+                        const bottomPx = Math.round(value);
+                        updateSelectedBlueprint({
+                          crop: {
+                            ...selectedBlueprint.crop,
+                            heightPx:
+                              selectedBlueprint.sourceHeightPx -
+                              selectedBlueprint.crop.topPx -
+                              bottomPx,
+                          },
+                        });
+                      }}
+                    />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    disabled={selectedBlueprint.locked}
+                    onClick={() =>
+                      updateSelectedBlueprint({
+                        crop: {
+                          leftPx: 0,
+                          topPx: 0,
+                          widthPx: selectedBlueprint.sourceWidthPx,
+                          heightPx: selectedBlueprint.sourceHeightPx,
+                        },
+                      })
+                    }
+                  >
+                    Reset crop
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={selectedBlueprint.locked}
+                    onClick={startBlueprintCalibration}
+                  >
                     Calibrate scale
                   </Button>
                   <Button
@@ -813,7 +951,7 @@ function PlanCanvas({
   }
 
   function beginBlueprintDrag(
-    event: ReactPointerEvent<SVGImageElement>,
+    event: ReactPointerEvent<SVGElement>,
     blueprint: ReturnType<typeof projectLevel2D>["blueprints"][number],
   ) {
     if (activeTool !== "select" || event.button !== 0) return;
@@ -1007,26 +1145,43 @@ function PlanCanvas({
               blueprintDragPreview?.blueprintId === blueprint.id
                 ? blueprintDragPreview
                 : null;
-            const xMm = preview?.xMm ?? blueprint.xMm;
-            const yMm = preview?.yMm ?? blueprint.yMm;
-            const transform = `rotate(${blueprint.rotationDeg} ${xMm} ${yMm})`;
+            const originXmm = preview?.xMm ?? blueprint.xMm;
+            const originYmm = preview?.yMm ?? blueprint.yMm;
+            const drawXmm =
+              originXmm + (blueprint.drawXmm - blueprint.xMm);
+            const drawYmm =
+              originYmm + (blueprint.drawYmm - blueprint.yMm);
+            const transform =
+              `rotate(${blueprint.rotationDeg} ${originXmm} ${originYmm})`;
+
             return (
               <g key={blueprint.id} transform={transform}>
-                <image
-                  href={assetContentUrl(blueprint.assetId)}
-                  x={xMm}
-                  y={yMm}
+                <svg
+                  x={drawXmm}
+                  y={drawYmm}
                   width={blueprint.widthMm}
                   height={blueprint.heightMm}
-                  opacity={blueprint.opacity}
+                  viewBox={`${blueprint.cropLeftPx} ${blueprint.cropTopPx} ${blueprint.cropWidthPx} ${blueprint.cropHeightPx}`}
                   preserveAspectRatio="none"
+                  overflow="hidden"
+                  opacity={blueprint.opacity}
                   className={`plan-blueprint${blueprint.locked ? " plan-blueprint--locked" : ""}`}
                   onPointerDown={(event) => beginBlueprintDrag(event, blueprint)}
-                />
+                >
+                  <image
+                    href={assetContentUrl(blueprint.assetId)}
+                    x={0}
+                    y={0}
+                    width={blueprint.sourceWidthPx}
+                    height={blueprint.sourceHeightPx}
+                    preserveAspectRatio="none"
+                    pointerEvents="none"
+                  />
+                </svg>
                 {selected ? (
                   <rect
-                    x={xMm}
-                    y={yMm}
+                    x={drawXmm}
+                    y={drawYmm}
                     width={blueprint.widthMm}
                     height={blueprint.heightMm}
                     className="plan-blueprint-selection"
@@ -1270,10 +1425,22 @@ function projectedBlueprintCorners(
   const cosine = Math.cos(radians);
   const sine = Math.sin(radians);
   const localPoints = [
-    { xMm: 0, yMm: 0 },
-    { xMm: blueprint.widthMm, yMm: 0 },
-    { xMm: blueprint.widthMm, yMm: blueprint.heightMm },
-    { xMm: 0, yMm: blueprint.heightMm },
+    {
+      xMm: blueprint.drawXmm - blueprint.xMm,
+      yMm: blueprint.drawYmm - blueprint.yMm,
+    },
+    {
+      xMm: blueprint.drawXmm - blueprint.xMm + blueprint.widthMm,
+      yMm: blueprint.drawYmm - blueprint.yMm,
+    },
+    {
+      xMm: blueprint.drawXmm - blueprint.xMm + blueprint.widthMm,
+      yMm: blueprint.drawYmm - blueprint.yMm + blueprint.heightMm,
+    },
+    {
+      xMm: blueprint.drawXmm - blueprint.xMm,
+      yMm: blueprint.drawYmm - blueprint.yMm + blueprint.heightMm,
+    },
   ];
 
   return localPoints.map((point) => ({

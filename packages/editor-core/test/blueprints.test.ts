@@ -7,6 +7,12 @@ const blueprint: BlueprintReference = {
   assetId: "asset_1",
   sourceWidthPx: 2000,
   sourceHeightPx: 1000,
+  crop: {
+    leftPx: 0,
+    topPx: 0,
+    widthPx: 2000,
+    heightPx: 1000,
+  },
   originXmm: 1000,
   originYmm: 500,
   millimetresPerPixel: 2,

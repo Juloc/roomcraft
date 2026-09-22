@@ -58,6 +58,29 @@ export function validateProjectDocument(document: ProjectDocument): void {
       if (!Number.isFinite(blueprint.opacity) || blueprint.opacity < 0 || blueprint.opacity > 1) {
         throw new Error(`Blueprint ${blueprint.id} opacity must be between 0 and 1.`);
       }
+      if (!blueprint.crop || typeof blueprint.crop !== "object") {
+        throw new Error(`Blueprint ${blueprint.id} crop is required.`);
+      }
+      for (const [field, value] of [
+        ["leftPx", blueprint.crop.leftPx],
+        ["topPx", blueprint.crop.topPx],
+        ["widthPx", blueprint.crop.widthPx],
+        ["heightPx", blueprint.crop.heightPx],
+      ] as const) {
+        if (!Number.isSafeInteger(value)) {
+          throw new Error(`Blueprint ${blueprint.id} crop.${field} must be an integer pixel value.`);
+        }
+      }
+      if (
+        blueprint.crop.leftPx < 0 ||
+        blueprint.crop.topPx < 0 ||
+        blueprint.crop.widthPx <= 0 ||
+        blueprint.crop.heightPx <= 0 ||
+        blueprint.crop.leftPx + blueprint.crop.widthPx > blueprint.sourceWidthPx ||
+        blueprint.crop.topPx + blueprint.crop.heightPx > blueprint.sourceHeightPx
+      ) {
+        throw new Error(`Blueprint ${blueprint.id} crop must stay inside the source image.`);
+      }
     }
 
         for (let index = 0; index < level.openings.length; index += 1) {

@@ -63,8 +63,8 @@ export function blueprintPlanDiagonalMm(blueprint: BlueprintReference): number {
   return distanceMm(
     { xMm: 0, yMm: 0 },
     {
-      xMm: blueprint.sourceWidthPx * blueprint.millimetresPerPixel,
-      yMm: blueprint.sourceHeightPx * blueprint.millimetresPerPixel,
+      xMm: blueprint.crop.widthPx * blueprint.millimetresPerPixel,
+      yMm: blueprint.crop.heightPx * blueprint.millimetresPerPixel,
     },
   );
 }
