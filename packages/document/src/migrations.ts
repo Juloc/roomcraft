@@ -1,12 +1,14 @@
 import {
   CURRENT_SCHEMA_VERSION,
+  createDefaultMaterials,
   type BlueprintReference,
   type ProjectDocument,
 } from "./schema";
 import { validateProjectDocument } from "./validation";
 
 type CurrentLevel = ProjectDocument["levels"][number];
-type LevelV3 = Omit<CurrentLevel, "floorThicknessMm">;
+type LevelV4 = Omit<CurrentLevel, "roomFinishes">;
+type LevelV3 = Omit<LevelV4, "floorThicknessMm">;
 
 interface ProjectDocumentV1 {
   schemaVersion: 1;
@@ -38,6 +40,14 @@ interface ProjectDocumentV3 {
   levels: LevelV3[];
 }
 
+interface ProjectDocumentV4 {
+  schemaVersion: 4;
+  id: string;
+  name: string;
+  settings: ProjectDocument["settings"];
+  levels: LevelV4[];
+}
+
 export function migrateProjectDocument(value: unknown): ProjectDocument {
   if (!value || typeof value !== "object") {
     throw new Error("Project document must be an object.");
@@ -51,21 +61,31 @@ export function migrateProjectDocument(value: unknown): ProjectDocument {
   }
 
   if (schemaVersion === 1) {
-    return migrateV3ToV4(
-      migrateV2ToV3(
-        migrateV1ToV2(value as ProjectDocumentV1),
+    return migrateV4ToV5(
+      migrateV3ToV4(
+        migrateV2ToV3(
+          migrateV1ToV2(value as ProjectDocumentV1),
+        ),
       ),
     );
   }
 
   if (schemaVersion === 2) {
-    return migrateV3ToV4(
-      migrateV2ToV3(value as ProjectDocumentV2),
+    return migrateV4ToV5(
+      migrateV3ToV4(
+        migrateV2ToV3(value as ProjectDocumentV2),
+      ),
     );
   }
 
   if (schemaVersion === 3) {
-    return migrateV3ToV4(value as ProjectDocumentV3);
+    return migrateV4ToV5(
+      migrateV3ToV4(value as ProjectDocumentV3),
+    );
+  }
+
+  if (schemaVersion === 4) {
+    return migrateV4ToV5(value as ProjectDocumentV4);
   }
 
   if (typeof schemaVersion === "number" && schemaVersion > CURRENT_SCHEMA_VERSION) {
@@ -113,13 +133,25 @@ function migrateV2ToV3(document: ProjectDocumentV2): ProjectDocumentV3 {
   };
 }
 
-function migrateV3ToV4(document: ProjectDocumentV3): ProjectDocument {
+function migrateV3ToV4(document: ProjectDocumentV3): ProjectDocumentV4 {
   return {
     ...document,
     schemaVersion: 4,
     levels: document.levels.map((level) => ({
       ...level,
       floorThicknessMm: 200,
+    })),
+  };
+}
+
+function migrateV4ToV5(document: ProjectDocumentV4): ProjectDocument {
+  return {
+    ...document,
+    schemaVersion: 5,
+    materials: createDefaultMaterials(),
+    levels: document.levels.map((level) => ({
+      ...level,
+      roomFinishes: [],
     })),
   };
 }
