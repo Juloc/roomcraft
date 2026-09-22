@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore.Metadata;
 namespace RoomCraft.Modules.Assets.Migrations;
 
 [DbContext(typeof(AssetsDbContext))]
-internal sealed class AssetsDbContextModelSnapshot : ModelSnapshot
+public sealed class AssetsDbContextModelSnapshot : ModelSnapshot
 {
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
