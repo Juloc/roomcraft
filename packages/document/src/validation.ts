@@ -43,6 +43,75 @@ export function validateProjectDocument(document: ProjectDocument): void {
     validateUnitInterval(material.metalness, `Material ${material.id} metalness`);
   }
 
+  const parametricAssetIds = new Set<string>();
+  for (const asset of document.parametricAssets) {
+    if (!asset.id || parametricAssetIds.has(asset.id)) {
+      throw new Error(
+        `Parametric asset id ${asset.id || "(empty)"} must be unique and non-empty.`,
+      );
+    }
+    parametricAssetIds.add(asset.id);
+
+    if (asset.kind !== "cabinet") {
+      throw new Error(`Unsupported parametric asset kind: ${String(asset.kind)}.`);
+    }
+    if (!asset.name.trim()) {
+      throw new Error(`Parametric cabinet ${asset.id} name is required.`);
+    }
+
+    for (const [field, value] of [
+      ["panelThicknessMm", asset.panelThicknessMm],
+      ["backThicknessMm", asset.backThicknessMm],
+      ["shelfThicknessMm", asset.shelfThicknessMm],
+      ["frontThicknessMm", asset.frontThicknessMm],
+    ] as const) {
+      assertIntegerMillimetres(value, `parametricCabinet.${field}`);
+      if (value <= 0) {
+        throw new Error(
+          `Parametric cabinet ${asset.id} ${field} must be positive.`,
+        );
+      }
+    }
+
+    for (const [field, value] of [
+      ["plinthHeightMm", asset.plinthHeightMm],
+      ["worktopThicknessMm", asset.worktopThicknessMm],
+    ] as const) {
+      assertIntegerMillimetres(value, `parametricCabinet.${field}`);
+      if (value < 0) {
+        throw new Error(
+          `Parametric cabinet ${asset.id} ${field} cannot be negative.`,
+        );
+      }
+    }
+
+    if (
+      !Number.isSafeInteger(asset.shelfCount) ||
+      asset.shelfCount < 0 ||
+      asset.shelfCount > 64
+    ) {
+      throw new Error(
+        `Parametric cabinet ${asset.id} shelfCount must be an integer between 0 and 64.`,
+      );
+    }
+
+    if (
+      asset.frontStyle !== "open" &&
+      asset.frontStyle !== "single-door" &&
+      asset.frontStyle !== "double-door"
+    ) {
+      throw new Error(
+        `Parametric cabinet ${asset.id} frontStyle is invalid.`,
+      );
+    }
+
+    validateMaterialReference(
+      asset.materialId,
+      materialIds,
+      `Parametric cabinet ${asset.id} materialId`,
+    );
+  }
+
   const levelIds = new Set<string>();
   for (const level of document.levels) {
     if (!level.id || levelIds.has(level.id)) {
@@ -121,6 +190,14 @@ export function validateProjectDocument(document: ProjectDocument): void {
       objectIds.add(object.id);
       if (!object.assetId) {
         throw new Error(`Object ${object.id} assetId is required.`);
+      }
+      if (object.assetId.startsWith("parametric:")) {
+        const definitionId = object.assetId.slice("parametric:".length);
+        if (!definitionId || !parametricAssetIds.has(definitionId)) {
+          throw new Error(
+            `Object ${object.id} references missing parametric asset ${definitionId || "(empty)"}.`,
+          );
+        }
       }
 
       for (const [field, value] of [
