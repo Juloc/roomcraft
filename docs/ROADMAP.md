@@ -256,7 +256,7 @@ V1:
 - deterministic schema migration on native import ✅
 - SVG floorplan generated from semantic 2D projection ✅
 - room labels / furniture footprints in SVG ✅
-- PNG/JPEG viewport ⬜
+- PNG/JPEG semantic floorplan raster export ✅
 - GLB project export from the shared 3D scene builder ✅
 
 Later:
