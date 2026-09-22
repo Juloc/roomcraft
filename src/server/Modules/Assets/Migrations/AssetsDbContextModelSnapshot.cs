@@ -50,6 +50,10 @@ public sealed class AssetsDbContextModelSnapshot : ModelSnapshot
                 .HasMaxLength(256)
                 .HasColumnType("character varying(256)");
 
+            entity.Property<string>("MetadataJson")
+                .IsRequired()
+                .HasColumnType("jsonb");
+
             entity.HasKey("Id");
             entity.HasIndex("CreatedUtc");
             entity.HasIndex("Kind", "Sha256").IsUnique();
