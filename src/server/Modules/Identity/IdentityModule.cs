@@ -76,7 +76,7 @@ public static partial class IdentityModule
         group.MapGet("/session", GetSessionAsync);
         group.MapPost("/setup", SetupAsync);
         group.MapPost("/login", LoginAsync);
-        group.MapPost("/logout", LogoutAsync);
+        group.MapPost("/logout", (Delegate)LogoutAsync);
 
         return endpoints;
     }
