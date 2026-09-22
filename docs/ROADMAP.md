@@ -136,7 +136,7 @@ Goal: let users trace an existing plan without CAD knowledge.
 - rotate ✅
 - crop ✅
 - calibration by drawing a line over a known distance ✅
-- lock 🚧 blueprint layer ✅
+- lock blueprint layer ✅
 - blueprint position / drag ✅
 - hide/show ✅
 - per-level blueprint ✅
@@ -157,7 +157,7 @@ Goal: support real multi-storey homes/apartments.
 - level elevation ✅
 - default storey height ✅
 - floor thickness ✅
-- duplicate shell to new level ✅
+- duplicate ✅ shell to new level ✅
 - show lower/upper level as optional ghost ✅
 - 3D all-level view ✅
 - stairs ◻ after basic multi-level behavior is stable
@@ -185,13 +185,13 @@ Definition of done:
 
 Goal: plan with real dimensions and reusable assets.
 
-### 6.1 Generic primitives 🚧
-- box/cabinet/table/sofa/bed primitives 🚧
-- exact width/depth/height 🚧
-- place/move/rotate 🚧
-- object snapping
+### 6.1 Generic primitives ✅
+- box/cabinet/table/sofa/bed primitives ✅
+- exact width/depth/height ✅
+- place/move/rotate ✅
+- object snapping ✅
 - duplicate
-- lock
+- lock ✅
 
 ### 6.2 Catalog
 - Catalog backend module
