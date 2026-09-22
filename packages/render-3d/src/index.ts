@@ -1,4 +1,12 @@
-import type { Level, Opening, ProjectDocument, Vertex, Wall } from "@roomcraft/document";
+import { getBuiltinAssetDefinition, type BuiltinPrimitiveKind } from "@roomcraft/catalog";
+import type {
+  Level,
+  ObjectInstance,
+  Opening,
+  ProjectDocument,
+  Vertex,
+  Wall,
+} from "@roomcraft/document";
 import { mmToMetres } from "@roomcraft/geometry";
 import {
   AmbientLight,
@@ -37,6 +45,16 @@ export class RoomSceneRenderer {
   private readonly selectedWallMaterial = new MeshStandardMaterial({
     color: new Color(0x5f86f2),
     roughness: 0.72,
+    metalness: 0,
+  });
+  private readonly objectMaterial = new MeshStandardMaterial({
+    color: new Color(0xa89f91),
+    roughness: 0.78,
+    metalness: 0,
+  });
+  private readonly selectedObjectMaterial = new MeshStandardMaterial({
+    color: new Color(0x5f86f2),
+    roughness: 0.68,
     metalness: 0,
   });
   private readonly resizeObserver: ResizeObserver;
@@ -99,11 +117,10 @@ export class RoomSceneRenderer {
     this.assertActive();
     this.selectedId = id;
 
-    for (const child of this.generated.children) {
-      if (!(child instanceof Mesh)) continue;
-      child.material =
-        child.userData.roomcraftId === id ? this.selectedWallMaterial : this.wallMaterial;
-    }
+    this.generated.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      child.material = this.materialForMesh(child);
+    });
 
     this.render();
   }
@@ -118,6 +135,8 @@ export class RoomSceneRenderer {
     this.clearGenerated();
     this.wallMaterial.dispose();
     this.selectedWallMaterial.dispose();
+    this.objectMaterial.dispose();
+    this.selectedObjectMaterial.dispose();
     this.grid.geometry.dispose();
     disposeMaterials(this.grid.material);
     this.renderer.dispose();
@@ -151,6 +170,10 @@ export class RoomSceneRenderer {
         .filter((opening) => opening.wallId === wall.id)
         .sort((a, b) => a.offsetMm - b.offsetMm);
       this.buildWall(level, wall, start, end, openings);
+    }
+
+    for (const object of level.objects) {
+      this.buildObject(level, object);
     }
   }
 
@@ -273,6 +296,7 @@ export class RoomSceneRenderer {
     );
     mesh.name = `${wall.id}:${part}`;
     mesh.userData.roomcraftId = wall.id;
+    mesh.userData.roomcraftKind = "wall";
     mesh.userData.roomcraftPart = part;
     mesh.position.set(
       mmToMetres(start.xMm + ux * centerDistanceMm),
@@ -283,9 +307,134 @@ export class RoomSceneRenderer {
     this.generated.add(mesh);
   }
 
+  private buildObject(level: Level, object: ObjectInstance): void {
+    const definition = getBuiltinAssetDefinition(object.assetId);
+    if (!definition) return;
+
+    const group = new Group();
+    group.name = object.id;
+    group.userData.roomcraftId = object.id;
+    group.userData.roomcraftKind = "object";
+    group.position.set(
+      mmToMetres(object.xMm),
+      mmToMetres(level.elevationMm + object.zMm),
+      mmToMetres(object.yMm),
+    );
+    group.rotation.y = -(object.rotationDeg * Math.PI) / 180;
+
+    this.addPrimitiveParts(group, object, definition.primitive);
+    this.generated.add(group);
+  }
+
+  private addPrimitiveParts(
+    group: Group,
+    object: ObjectInstance,
+    primitive: BuiltinPrimitiveKind,
+  ): void {
+    const width = object.widthMm;
+    const depth = object.depthMm;
+    const height = object.heightMm;
+
+    switch (primitive) {
+      case "table": {
+        const topThickness = Math.min(80, Math.max(30, Math.round(height * 0.1)));
+        const legSize = Math.min(80, Math.max(35, Math.round(Math.min(width, depth) * 0.08)));
+        const legHeight = Math.max(1, height - topThickness);
+        this.addObjectPart(group, object, width, topThickness, depth, 0, height - topThickness / 2, 0, "top");
+        const x = Math.max(0, width / 2 - legSize / 2 - 40);
+        const z = Math.max(0, depth / 2 - legSize / 2 - 40);
+        for (const [px, pz] of [[-x, -z], [x, -z], [-x, z], [x, z]] as const) {
+          this.addObjectPart(group, object, legSize, legHeight, legSize, px, legHeight / 2, pz, "leg");
+        }
+        break;
+      }
+      case "sofa": {
+        const baseHeight = Math.max(160, Math.round(height * 0.45));
+        const backDepth = Math.max(120, Math.round(depth * 0.16));
+        const armWidth = Math.max(100, Math.round(width * 0.08));
+        this.addObjectPart(group, object, width, baseHeight, depth, 0, baseHeight / 2, 0, "base");
+        this.addObjectPart(
+          group,
+          object,
+          width,
+          Math.max(1, height - baseHeight),
+          backDepth,
+          0,
+          baseHeight + (height - baseHeight) / 2,
+          depth / 2 - backDepth / 2,
+          "back",
+        );
+        const armHeight = Math.min(height, Math.max(baseHeight, Math.round(height * 0.7)));
+        this.addObjectPart(group, object, armWidth, armHeight, depth, -width / 2 + armWidth / 2, armHeight / 2, 0, "arm");
+        this.addObjectPart(group, object, armWidth, armHeight, depth, width / 2 - armWidth / 2, armHeight / 2, 0, "arm");
+        break;
+      }
+      case "bed": {
+        const baseHeight = Math.max(120, Math.round(height * 0.45));
+        const mattressHeight = Math.max(80, Math.round(height * 0.35));
+        const headDepth = Math.max(50, Math.round(depth * 0.05));
+        this.addObjectPart(group, object, width, baseHeight, depth, 0, baseHeight / 2, 0, "base");
+        this.addObjectPart(
+          group,
+          object,
+          width * 0.96,
+          mattressHeight,
+          depth * 0.92,
+          0,
+          baseHeight + mattressHeight / 2,
+          0,
+          "mattress",
+        );
+        this.addObjectPart(group, object, width, height, headDepth, 0, height / 2, depth / 2 - headDepth / 2, "headboard");
+        break;
+      }
+      case "cabinet":
+      case "box":
+        this.addObjectPart(group, object, width, height, depth, 0, height / 2, 0, primitive);
+        break;
+    }
+  }
+
+  private addObjectPart(
+    group: Group,
+    object: ObjectInstance,
+    widthMm: number,
+    heightMm: number,
+    depthMm: number,
+    xMm: number,
+    yMm: number,
+    zMm: number,
+    part: string,
+  ): void {
+    const geometry = new BoxGeometry(
+      mmToMetres(Math.max(1, widthMm)),
+      mmToMetres(Math.max(1, heightMm)),
+      mmToMetres(Math.max(1, depthMm)),
+    );
+    const mesh = new Mesh(geometry, this.selectedId === object.id ? this.selectedObjectMaterial : this.objectMaterial);
+    mesh.position.set(mmToMetres(xMm), mmToMetres(yMm), mmToMetres(zMm));
+    mesh.userData.roomcraftId = object.id;
+    mesh.userData.roomcraftKind = "object";
+    mesh.userData.roomcraftPart = part;
+    group.add(mesh);
+  }
+
+  private materialForMesh(mesh: Mesh): MeshStandardMaterial {
+    const selected = mesh.userData.roomcraftId === this.selectedId;
+    return mesh.userData.roomcraftKind === "object"
+      ? selected
+        ? this.selectedObjectMaterial
+        : this.objectMaterial
+      : selected
+        ? this.selectedWallMaterial
+        : this.wallMaterial;
+  }
+
   private frameLevels(levels: readonly Level[]): void {
-    const levelsWithVertices = levels.filter((level) => level.vertices.length > 0);
-    if (levelsWithVertices.length === 0) {
+    const levelsWithContent = levels.filter(
+      (level) => level.vertices.length > 0 || level.objects.length > 0,
+    );
+    if (levelsWithContent.length === 0) {
       this.controls.target.set(0, 0.8, 0);
       this.camera.position.set(5, 5, 5);
       this.controls.update();
@@ -299,12 +448,15 @@ export class RoomSceneRenderer {
     let minZ = Number.POSITIVE_INFINITY;
     let maxZ = Number.NEGATIVE_INFINITY;
 
-    for (const level of levelsWithVertices) {
+    for (const level of levelsWithContent) {
       minY = Math.min(minY, mmToMetres(level.elevationMm));
-      const maxWallHeightMm = Math.max(
-        level.defaultWallHeightMm,
-        ...level.walls.map((wall) => wall.heightMm ?? level.defaultWallHeightMm),
-      );
+      const maxWallHeightMm =
+        level.walls.length > 0
+          ? Math.max(
+              level.defaultWallHeightMm,
+              ...level.walls.map((wall) => wall.heightMm ?? level.defaultWallHeightMm),
+            )
+          : 0;
       maxY = Math.max(
         maxY,
         mmToMetres(level.elevationMm + maxWallHeightMm),
@@ -315,6 +467,19 @@ export class RoomSceneRenderer {
         maxX = Math.max(maxX, mmToMetres(vertex.xMm));
         minZ = Math.min(minZ, mmToMetres(vertex.yMm));
         maxZ = Math.max(maxZ, mmToMetres(vertex.yMm));
+      }
+
+      for (const object of level.objects) {
+        const radiusMm = Math.hypot(object.widthMm, object.depthMm) / 2;
+        minX = Math.min(minX, mmToMetres(object.xMm - radiusMm));
+        maxX = Math.max(maxX, mmToMetres(object.xMm + radiusMm));
+        minZ = Math.min(minZ, mmToMetres(object.yMm - radiusMm));
+        maxZ = Math.max(maxZ, mmToMetres(object.yMm + radiusMm));
+        minY = Math.min(minY, mmToMetres(level.elevationMm + object.zMm));
+        maxY = Math.max(
+          maxY,
+          mmToMetres(level.elevationMm + object.zMm + object.heightMm),
+        );
       }
     }
 
@@ -342,10 +507,10 @@ export class RoomSceneRenderer {
   }
 
   private clearGenerated(): void {
-    for (const child of [...this.generated.children]) {
+    this.generated.traverse((child) => {
       if (child instanceof Mesh) child.geometry.dispose();
-      this.generated.remove(child);
-    }
+    });
+    this.generated.clear();
   }
 
   private assertActive(): void {
