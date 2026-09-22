@@ -101,7 +101,7 @@ test("phone editor stays viewport-bound and uses touch-native controls", async (
   await expect(sheet).toHaveClass(/rc-sheet--open/);
   await expect(sheet.getByText("Selected wall", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Close Properties" }).click();
+  await sheet.getByRole("button", { name: "Close Properties" }).click();
   await expect(sheet).not.toHaveClass(/rc-sheet--open/);
 
   await page.locator(".mobile-header-actions .rc-menu__trigger").click();
