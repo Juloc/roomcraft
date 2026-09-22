@@ -134,28 +134,28 @@ Goal: let users trace an existing plan without CAD knowledge.
 - PDF-page import ◻
 - blueprint opacity 🚧
 - rotate 🚧
-- crop 🚧
+- crop ✅
 - calibration by drawing a line over a known distance 🚧
 - lock blueprint layer 🚧
 - blueprint position / drag 🚧
 - hide/show 🚧
 - per-level blueprint
 - preserve source asset separately from editor geometry
-- schema v3 crop migration 🚧
+- schema v3 crop migration ✅
 
 Definition of done:
 - user can import a photographed/scanned plan, calibrate one known wall and trace accurate walls over it
 
 ---
 
-## Phase 4 — Levels and building shell ⬜
+## Phase 4 — Levels and building shell 🚧
 
 Goal: support real multi-storey homes/apartments.
 
-- level create/rename/delete
-- level elevation
-- default storey height
-- floor thickness
+- level create/rename/delete 🚧
+- level elevation 🚧
+- default storey height 🚧
+- floor thickness 🚧
 - duplicate shell to new level
 - show lower/upper level as optional ghost
 - 3D all-level view
