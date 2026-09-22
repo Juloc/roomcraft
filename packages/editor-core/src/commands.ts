@@ -339,6 +339,7 @@ export class SetWallLengthCommand implements EditorCommand {
 export interface AddBlueprintInput {
   levelId: EntityId;
   blueprint: BlueprintReference;
+  index?: number;
 }
 
 export class AddBlueprintCommand implements EditorCommand {
@@ -352,16 +353,23 @@ export class AddBlueprintCommand implements EditorCommand {
       throw new Error(`Blueprint ${this.input.blueprint.id} already exists.`);
     }
 
+    const index = this.input.index ?? level.blueprints.length;
+    if (!Number.isSafeInteger(index) || index < 0 || index > level.blueprints.length) {
+      throw new Error("Blueprint insertion index is invalid.");
+    }
+
+    const blueprints = [...level.blueprints];
+    blueprints.splice(index, 0, this.input.blueprint);
     const nextLevel: Level = {
       ...level,
-      blueprints: [...level.blueprints, this.input.blueprint],
+      blueprints,
     };
     const nextDocument = replaceLevel(document, nextLevel);
     validateProjectDocument(nextDocument);
 
     return {
       document: nextDocument,
-      inverse: new RemoveBlueprintCommand(this.input.levelId, this.input.blueprint),
+      inverse: new RemoveBlueprintCommand(this.input.levelId, this.input.blueprint.id),
     };
   }
 }
@@ -439,24 +447,32 @@ export class CalibrateBlueprintCommand implements EditorCommand {
   }
 }
 
-class RemoveBlueprintCommand implements EditorCommand {
+export class RemoveBlueprintCommand implements EditorCommand {
   readonly type = "RemoveBlueprint";
 
   constructor(
     private readonly levelId: EntityId,
-    private readonly blueprint: BlueprintReference,
+    private readonly blueprintId: EntityId,
   ) {}
 
   execute(document: ProjectDocument): CommandResult {
     const level = getLevel(document, this.levelId);
-    if (!level.blueprints.some((candidate) => candidate.id === this.blueprint.id)) {
-      throw new Error(`Blueprint ${this.blueprint.id} does not exist.`);
+    const index = level.blueprints.findIndex(
+      (candidate) => candidate.id === this.blueprintId,
+    );
+    if (index < 0) {
+      throw new Error(`Blueprint ${this.blueprintId} does not exist.`);
+    }
+
+    const blueprint = level.blueprints[index];
+    if (!blueprint) {
+      throw new Error(`Blueprint ${this.blueprintId} does not exist.`);
     }
 
     const nextLevel: Level = {
       ...level,
       blueprints: level.blueprints.filter(
-        (candidate) => candidate.id !== this.blueprint.id,
+        (candidate) => candidate.id !== this.blueprintId,
       ),
     };
 
@@ -464,7 +480,69 @@ class RemoveBlueprintCommand implements EditorCommand {
       document: replaceLevel(document, nextLevel),
       inverse: new AddBlueprintCommand({
         levelId: this.levelId,
-        blueprint: this.blueprint,
+        blueprint,
+        index,
+      }),
+    };
+  }
+}
+
+export interface MoveBlueprintLayerInput {
+  levelId: EntityId;
+  blueprintId: EntityId;
+  toIndex: number;
+}
+
+export class MoveBlueprintLayerCommand implements EditorCommand {
+  readonly type = "MoveBlueprintLayer";
+
+  constructor(private readonly input: MoveBlueprintLayerInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    if (
+      !Number.isSafeInteger(this.input.toIndex) ||
+      this.input.toIndex < 0 ||
+      this.input.toIndex >= level.blueprints.length
+    ) {
+      throw new Error("Blueprint target index is invalid.");
+    }
+
+    const fromIndex = level.blueprints.findIndex(
+      (candidate) => candidate.id === this.input.blueprintId,
+    );
+    if (fromIndex < 0) {
+      throw new Error(`Blueprint ${this.input.blueprintId} does not exist.`);
+    }
+
+    if (fromIndex === this.input.toIndex) {
+      return {
+        document,
+        inverse: new MoveBlueprintLayerCommand({
+          ...this.input,
+          toIndex: fromIndex,
+        }),
+      };
+    }
+
+    const blueprints = [...level.blueprints];
+    const [blueprint] = blueprints.splice(fromIndex, 1);
+    if (!blueprint) {
+      throw new Error(`Blueprint ${this.input.blueprintId} does not exist.`);
+    }
+    blueprints.splice(this.input.toIndex, 0, blueprint);
+
+    const nextLevel: Level = {
+      ...level,
+      blueprints,
+    };
+
+    return {
+      document: replaceLevel(document, nextLevel),
+      inverse: new MoveBlueprintLayerCommand({
+        levelId: this.input.levelId,
+        blueprintId: this.input.blueprintId,
+        toIndex: fromIndex,
       }),
     };
   }

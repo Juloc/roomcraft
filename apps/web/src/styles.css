@@ -460,3 +460,10 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: var(--rc-space-2);
 }
+
+.blueprint-layers {
+  display: grid;
+  gap: var(--rc-space-3);
+  padding-top: var(--rc-space-4);
+  border-top: 1px solid var(--rc-border);
+}

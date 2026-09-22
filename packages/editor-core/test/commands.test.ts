@@ -1,6 +1,6 @@
 import { createEmptyProject } from "@roomcraft/document";
 import { describe, expect, it } from "vitest";
-import { AddBlueprintCommand, AddLevelCommand, AddOpeningCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, RemoveLevelCommand, SetWallLengthCommand, UpdateLevelCommand } from "../src";
+import { AddBlueprintCommand, AddLevelCommand, AddOpeningCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, MoveBlueprintLayerCommand, RemoveBlueprintCommand, RemoveLevelCommand, SetWallLengthCommand, UpdateLevelCommand } from "../src";
 
 describe("CommandHistory", () => {
   it("adds a wall through a command and restores it through undo/redo", () => {
@@ -276,6 +276,103 @@ describe("CommandHistory", () => {
 
     history.redo();
     expect(history.document.levels[0]?.blueprints[0]?.assetId).toBe("asset_1");
+  });
+
+  it("reorders blueprint layers and restores the order through undo", () => {
+    const history = new CommandHistory(createEmptyProject("project_layers"));
+    const baseBlueprint = {
+      assetId: "asset_1",
+      sourceWidthPx: 1000,
+      sourceHeightPx: 800,
+      crop: { leftPx: 0, topPx: 0, widthPx: 1000, heightPx: 800 },
+      originXmm: 0,
+      originYmm: 0,
+      millimetresPerPixel: 2,
+      rotationDeg: 0,
+      opacity: 0.5,
+      locked: false,
+      visible: true,
+    };
+
+    history.execute(
+      new AddBlueprintCommand({
+        levelId: "level_ground",
+        blueprint: { ...baseBlueprint, id: "blueprint_a" },
+      }),
+    );
+    history.execute(
+      new AddBlueprintCommand({
+        levelId: "level_ground",
+        blueprint: { ...baseBlueprint, id: "blueprint_b", assetId: "asset_2" },
+      }),
+    );
+
+    history.execute(
+      new MoveBlueprintLayerCommand({
+        levelId: "level_ground",
+        blueprintId: "blueprint_a",
+        toIndex: 1,
+      }),
+    );
+
+    expect(history.document.levels[0]?.blueprints.map((blueprint) => blueprint.id)).toEqual([
+      "blueprint_b",
+      "blueprint_a",
+    ]);
+
+    history.undo();
+    expect(history.document.levels[0]?.blueprints.map((blueprint) => blueprint.id)).toEqual([
+      "blueprint_a",
+      "blueprint_b",
+    ]);
+  });
+
+  it("removes a blueprint and restores its original layer index through undo", () => {
+    const history = new CommandHistory(createEmptyProject("project_remove_blueprint"));
+    const baseBlueprint = {
+      sourceWidthPx: 1000,
+      sourceHeightPx: 800,
+      crop: { leftPx: 0, topPx: 0, widthPx: 1000, heightPx: 800 },
+      originXmm: 0,
+      originYmm: 0,
+      millimetresPerPixel: 2,
+      rotationDeg: 0,
+      opacity: 0.5,
+      locked: false,
+      visible: true,
+    };
+
+    history.execute(
+      new AddBlueprintCommand({
+        levelId: "level_ground",
+        blueprint: { ...baseBlueprint, id: "blueprint_a", assetId: "asset_a" },
+      }),
+    );
+    history.execute(
+      new AddBlueprintCommand({
+        levelId: "level_ground",
+        blueprint: { ...baseBlueprint, id: "blueprint_b", assetId: "asset_b" },
+      }),
+    );
+    history.execute(
+      new AddBlueprintCommand({
+        levelId: "level_ground",
+        blueprint: { ...baseBlueprint, id: "blueprint_c", assetId: "asset_c" },
+      }),
+    );
+
+    history.execute(new RemoveBlueprintCommand("level_ground", "blueprint_b"));
+    expect(history.document.levels[0]?.blueprints.map((blueprint) => blueprint.id)).toEqual([
+      "blueprint_a",
+      "blueprint_c",
+    ]);
+
+    history.undo();
+    expect(history.document.levels[0]?.blueprints.map((blueprint) => blueprint.id)).toEqual([
+      "blueprint_a",
+      "blueprint_b",
+      "blueprint_c",
+    ]);
   });
 
   it("adds, edits and removes levels through undoable commands", () => {

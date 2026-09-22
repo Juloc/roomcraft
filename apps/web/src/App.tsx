@@ -11,6 +11,8 @@ import {
   AddWallCommand,
   CalibrateBlueprintCommand,
   EMPTY_SELECTION,
+  MoveBlueprintLayerCommand,
+  RemoveBlueprintCommand,
   RemoveLevelCommand,
   SetWallLengthCommand,
   UpdateBlueprintCommand,
@@ -33,6 +35,7 @@ import { projectLevel2D } from "@roomcraft/render-2d";
 import { RoomSceneRenderer } from "@roomcraft/render-3d";
 import {
   Button,
+  LayerList,
   LengthField,
   NumberField,
   Panel,
@@ -421,14 +424,56 @@ export function App() {
     setActiveTool("select");
   }
 
-  function updateSelectedBlueprint(changes: Partial<BlueprintReference>) {
-    if (!selectedBlueprint) return;
+  function updateBlueprint(blueprintId: string, changes: Partial<BlueprintReference>) {
+    const blueprint = currentLevel()?.blueprints.find(
+      (candidate) => candidate.id === blueprintId,
+    );
+    if (!blueprint) return;
+
     session.execute(
       new UpdateBlueprintCommand({
         levelId,
-        blueprint: { ...selectedBlueprint, ...changes },
+        blueprint: { ...blueprint, ...changes },
       }),
     );
+  }
+
+  function updateSelectedBlueprint(changes: Partial<BlueprintReference>) {
+    if (!selectedBlueprintId) return;
+    updateBlueprint(selectedBlueprintId, changes);
+  }
+
+  function moveBlueprintLayer(blueprintId: string, delta: -1 | 1) {
+    const blueprints = currentLevel()?.blueprints;
+    if (!blueprints) return;
+
+    const currentIndex = blueprints.findIndex(
+      (candidate) => candidate.id === blueprintId,
+    );
+    if (currentIndex < 0) return;
+
+    const toIndex = currentIndex + delta;
+    if (toIndex < 0 || toIndex >= blueprints.length) return;
+
+    session.execute(
+      new MoveBlueprintLayerCommand({
+        levelId,
+        blueprintId,
+        toIndex,
+      }),
+    );
+  }
+
+  function removeBlueprint(blueprintId: string) {
+    const current = currentLevel();
+    if (!current?.blueprints.some((candidate) => candidate.id === blueprintId)) return;
+
+    session.execute(new RemoveBlueprintCommand(levelId, blueprintId));
+    if (selectedBlueprintId === blueprintId) setSelection(EMPTY_SELECTION);
+    if (calibrationDraft?.blueprintId === blueprintId) {
+      setCalibrationDraft(null);
+      setActiveTool("select");
+    }
   }
 
   function moveBlueprint(blueprintId: string, xMm: number, yMm: number) {
@@ -734,6 +779,44 @@ export function App() {
                   {blueprintImportError}
                 </div>
               ) : null}
+
+              <div className="blueprint-layers">
+                <span className="eyebrow">Blueprint layers</span>
+                <LayerList
+                  emptyLabel="No blueprints on this level"
+                  items={[...level.blueprints]
+                    .map((blueprint, index) => ({
+                      id: blueprint.id,
+                      label: `Blueprint ${index + 1}`,
+                      selected: blueprint.id === selectedBlueprintId,
+                      visible: blueprint.visible,
+                      locked: blueprint.locked,
+                      canMoveUp: index < level.blueprints.length - 1,
+                      canMoveDown: index > 0,
+                    }))
+                    .reverse()}
+                  onSelect={selectBlueprint}
+                  onToggleVisible={(blueprintId) => {
+                    const blueprint = level.blueprints.find(
+                      (candidate) => candidate.id === blueprintId,
+                    );
+                    if (blueprint) {
+                      updateBlueprint(blueprintId, { visible: !blueprint.visible });
+                    }
+                  }}
+                  onToggleLocked={(blueprintId) => {
+                    const blueprint = level.blueprints.find(
+                      (candidate) => candidate.id === blueprintId,
+                    );
+                    if (blueprint) {
+                      updateBlueprint(blueprintId, { locked: !blueprint.locked });
+                    }
+                  }}
+                  onMoveUp={(blueprintId) => moveBlueprintLayer(blueprintId, 1)}
+                  onMoveDown={(blueprintId) => moveBlueprintLayer(blueprintId, -1)}
+                  onDelete={removeBlueprint}
+                />
+              </div>
 
               {selectedWall ? (
                 <div className="selection-properties">
