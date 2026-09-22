@@ -170,8 +170,11 @@ export function Panel({ children }: PropsWithChildren) {
   return <section className="rc-panel">{children}</section>;
 }
 
-export function Toolbar({ children }: PropsWithChildren) {
-  return <div className="rc-toolbar">{children}</div>;
+export function Toolbar({
+  children,
+  className = "",
+}: PropsWithChildren<{ className?: string }>) {
+  return <div className={`rc-toolbar ${className}`.trim()}>{children}</div>;
 }
 
 export { LengthField } from "./LengthField";
