@@ -1,25 +1,30 @@
 import { getBuiltinAssetDefinition, type BuiltinPrimitiveKind } from "@roomcraft/catalog";
 import type {
   Level,
+  MaterialDefinition,
   ObjectInstance,
   Opening,
   ProjectDocument,
   Vertex,
   Wall,
 } from "@roomcraft/document";
-import { mmToMetres } from "@roomcraft/geometry";
+import { analyzePlanarFaces, mmToMetres } from "@roomcraft/geometry";
 import {
   AmbientLight,
   BoxGeometry,
   BoxHelper,
   Color,
   DirectionalLight,
+  DoubleSide,
   GridHelper,
   Group,
+  Material,
   Mesh,
   MeshStandardMaterial,
   PerspectiveCamera,
   Scene,
+  Shape,
+  ShapeGeometry,
   SRGBColorSpace,
   Vector3,
   WebGLRenderer,
@@ -39,6 +44,7 @@ export type RoomSceneLevelScope = "active" | "all";
 export interface RoomSceneOptions {
   levelScope?: RoomSceneLevelScope;
   modelAssets?: readonly RuntimeModelAsset[];
+  showCeilings?: boolean;
 }
 
 export class RoomSceneRenderer {
@@ -72,7 +78,10 @@ export class RoomSceneRenderer {
   private readonly modelAssetsByObjectAssetId = new Map<string, RuntimeModelAsset>();
   private readonly modelPrototypePromises = new Map<string, Promise<Group>>();
   private readonly modelPrototypes = new Map<string, Group>();
+  private readonly materialDefinitionById = new Map<string, MaterialDefinition>();
+  private readonly projectMaterialCache = new Map<string, MeshStandardMaterial>();
   private selectionHelper: BoxHelper | null = null;
+  private showCeilings = false;
   private renderGeneration = 0;
   private selectedId: string | null = null;
   private disposed = false;
@@ -123,6 +132,8 @@ export class RoomSceneRenderer {
       options.levelScope === "all" ? document.levels : [activeLevel];
 
     this.renderGeneration += 1;
+    this.showCeilings = options.showCeilings ?? false;
+    this.setMaterialDefinitions(document.materials);
     this.modelAssetsByObjectAssetId.clear();
     for (const asset of options.modelAssets ?? []) {
       this.modelAssetsByObjectAssetId.set(asset.objectAssetId, asset);
@@ -161,6 +172,9 @@ export class RoomSceneRenderer {
     }
     this.modelPrototypePromises.clear();
     this.modelPrototypes.clear();
+    for (const material of this.projectMaterialCache.values()) material.dispose();
+    this.projectMaterialCache.clear();
+    this.materialDefinitionById.clear();
     this.wallMaterial.dispose();
     this.selectedWallMaterial.dispose();
     this.objectMaterial.dispose();
@@ -188,6 +202,8 @@ export class RoomSceneRenderer {
 
   private buildLevel(level: Level): void {
     const vertices = new Map(level.vertices.map((vertex) => [vertex.id, vertex]));
+
+    this.buildRoomSurfaces(level);
 
     for (const wall of level.walls) {
       const start = vertices.get(wall.startVertexId);
@@ -320,18 +336,89 @@ export class RoomSceneRenderer {
     );
     const mesh = new Mesh(
       geometry,
-      this.selectedId === wall.id ? this.selectedWallMaterial : this.wallMaterial,
+      this.selectedId === wall.id
+        ? this.selectedWallMaterial
+        : this.wallMaterialsFor(wall),
     );
     mesh.name = `${wall.id}:${part}`;
     mesh.userData.roomcraftId = wall.id;
     mesh.userData.roomcraftKind = "wall";
     mesh.userData.roomcraftPart = part;
+    mesh.userData.roomcraftLeftMaterialId = wall.leftMaterialId ?? null;
+    mesh.userData.roomcraftRightMaterialId = wall.rightMaterialId ?? null;
     mesh.position.set(
       mmToMetres(start.xMm + ux * centerDistanceMm),
       mmToMetres(level.elevationMm + bottomMm + blockHeightMm / 2),
       mmToMetres(start.yMm + uz * centerDistanceMm),
     );
     mesh.rotation.y = rotationY;
+    this.generated.add(mesh);
+  }
+
+  private buildRoomSurfaces(level: Level): void {
+    const analysis = analyzePlanarFaces(level.vertices, level.walls);
+    if (analysis.issues.length > 0) return;
+
+    const finishByKey = new Map(
+      level.roomFinishes.map((finish) => [finish.roomKey, finish]),
+    );
+
+    for (const face of analysis.faces) {
+      const finish = finishByKey.get(face.key);
+      this.addRoomSurface(
+        level,
+        face.key,
+        face.points,
+        level.elevationMm + 1,
+        finish?.floorMaterialId ?? null,
+        "floor",
+      );
+
+      if (this.showCeilings) {
+        this.addRoomSurface(
+          level,
+          face.key,
+          face.points,
+          level.elevationMm + level.defaultWallHeightMm - 1,
+          finish?.ceilingMaterialId ?? null,
+          "ceiling",
+        );
+      }
+    }
+  }
+
+  private addRoomSurface(
+    level: Level,
+    roomKey: string,
+    points: readonly { xMm: number; yMm: number }[],
+    elevationMm: number,
+    materialId: string | null,
+    part: "floor" | "ceiling",
+  ): void {
+    if (points.length < 3) return;
+
+    const shape = new Shape();
+    const first = points[0];
+    if (!first) return;
+    shape.moveTo(mmToMetres(first.xMm), mmToMetres(first.yMm));
+    for (const point of points.slice(1)) {
+      shape.lineTo(mmToMetres(point.xMm), mmToMetres(point.yMm));
+    }
+    shape.closePath();
+
+    const geometry = new ShapeGeometry(shape);
+    const baseMaterial = this.materialForId(materialId, this.wallMaterial);
+    const mesh = new Mesh(
+      geometry,
+      this.selectedId === roomKey ? this.selectedWallMaterial : baseMaterial,
+    );
+    mesh.name = `${level.id}:${roomKey}:${part}`;
+    mesh.userData.roomcraftId = roomKey;
+    mesh.userData.roomcraftKind = "room-surface";
+    mesh.userData.roomcraftPart = part;
+    mesh.userData.roomcraftMaterialId = materialId;
+    mesh.rotation.x = Math.PI / 2;
+    mesh.position.y = mmToMetres(elevationMm);
     this.generated.add(mesh);
   }
 
@@ -555,15 +642,79 @@ export class RoomSceneRenderer {
     group.add(mesh);
   }
 
-  private materialForMesh(mesh: Mesh): MeshStandardMaterial {
+  private materialForMesh(mesh: Mesh): Material | Material[] {
     const selected = mesh.userData.roomcraftId === this.selectedId;
-    return mesh.userData.roomcraftKind === "object"
-      ? selected
-        ? this.selectedObjectMaterial
-        : this.objectMaterial
-      : selected
+    if (mesh.userData.roomcraftKind === "object") {
+      return selected ? this.selectedObjectMaterial : this.objectMaterial;
+    }
+    if (mesh.userData.roomcraftKind === "room-surface") {
+      return selected
         ? this.selectedWallMaterial
-        : this.wallMaterial;
+        : this.materialForId(
+            (mesh.userData.roomcraftMaterialId as string | null | undefined) ?? null,
+            this.wallMaterial,
+          );
+    }
+
+    if (selected) return this.selectedWallMaterial;
+    return [
+      this.wallMaterial,
+      this.wallMaterial,
+      this.wallMaterial,
+      this.wallMaterial,
+      this.materialForId(
+        (mesh.userData.roomcraftLeftMaterialId as string | null | undefined) ?? null,
+        this.wallMaterial,
+      ),
+      this.materialForId(
+        (mesh.userData.roomcraftRightMaterialId as string | null | undefined) ?? null,
+        this.wallMaterial,
+      ),
+    ];
+  }
+
+  private wallMaterialsFor(wall: Wall): Material[] {
+    return [
+      this.wallMaterial,
+      this.wallMaterial,
+      this.wallMaterial,
+      this.wallMaterial,
+      this.materialForId(wall.leftMaterialId ?? null, this.wallMaterial),
+      this.materialForId(wall.rightMaterialId ?? null, this.wallMaterial),
+    ];
+  }
+
+  private materialForId(
+    materialId: string | null,
+    fallback: MeshStandardMaterial,
+  ): MeshStandardMaterial {
+    if (!materialId) return fallback;
+
+    const cached = this.projectMaterialCache.get(materialId);
+    if (cached) return cached;
+
+    const definition = this.materialDefinitionById.get(materialId);
+    if (!definition) return fallback;
+
+    const material = new MeshStandardMaterial({
+      color: new Color(definition.baseColorHex),
+      roughness: definition.roughness,
+      metalness: definition.metalness,
+      side: DoubleSide,
+    });
+    this.projectMaterialCache.set(materialId, material);
+    return material;
+  }
+
+  private setMaterialDefinitions(
+    definitions: readonly MaterialDefinition[],
+  ): void {
+    for (const material of this.projectMaterialCache.values()) material.dispose();
+    this.projectMaterialCache.clear();
+    this.materialDefinitionById.clear();
+    for (const definition of definitions) {
+      this.materialDefinitionById.set(definition.id, definition);
+    }
   }
 
   private updateSelectionHelper(): void {
@@ -686,7 +837,7 @@ export class RoomSceneRenderer {
   }
 }
 
-function disposeMaterials(material: GridHelper["material"]): void {
+function disposeMaterials(material: Material | Material[]): void {
   if (Array.isArray(material)) {
     for (const item of material) item.dispose();
   } else {
