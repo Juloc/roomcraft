@@ -86,3 +86,39 @@ export function getBuiltinAssetDefinition(assetId: string): AssetDefinition | nu
 export function isBuiltinAssetId(assetId: string): boolean {
   return builtinById.has(assetId);
 }
+
+
+export interface CatalogVersionReference {
+  itemId: string;
+  version: number;
+}
+
+export function catalogVersionAssetId(
+  itemId: string,
+  version: number,
+): string {
+  const normalizedItemId = itemId.trim();
+  if (!normalizedItemId || normalizedItemId.includes("@")) {
+    throw new Error("Catalog item id is invalid.");
+  }
+  if (!Number.isSafeInteger(version) || version <= 0) {
+    throw new Error("Catalog version must be a positive integer.");
+  }
+
+  return `catalog:${normalizedItemId}@${version}`;
+}
+
+export function parseCatalogVersionAssetId(
+  assetId: string,
+): CatalogVersionReference | null {
+  if (!assetId.startsWith("catalog:")) return null;
+
+  const versionSeparator = assetId.lastIndexOf("@");
+  if (versionSeparator <= "catalog:".length) return null;
+
+  const itemId = assetId.slice("catalog:".length, versionSeparator);
+  const version = Number(assetId.slice(versionSeparator + 1));
+  if (!itemId || !Number.isSafeInteger(version) || version <= 0) return null;
+
+  return { itemId, version };
+}

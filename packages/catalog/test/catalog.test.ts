@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   BUILTIN_ASSETS,
+  catalogVersionAssetId,
   getBuiltinAssetDefinition,
   isBuiltinAssetId,
+  parseCatalogVersionAssetId,
 } from "../src";
 
 describe("builtin catalog", () => {
@@ -22,5 +24,21 @@ describe("builtin catalog", () => {
     expect(getBuiltinAssetDefinition("builtin:table")?.primitive).toBe("table");
     expect(getBuiltinAssetDefinition("catalog:unknown")).toBeNull();
     expect(isBuiltinAssetId("builtin:bed")).toBe(true);
+  });
+
+  it("round-trips immutable catalog version references", () => {
+    const assetId = catalogVersionAssetId("catalog_table_1", 3);
+    expect(assetId).toBe("catalog:catalog_table_1@3");
+    expect(parseCatalogVersionAssetId(assetId)).toEqual({
+      itemId: "catalog_table_1",
+      version: 3,
+    });
+    expect(parseCatalogVersionAssetId("builtin:table")).toBeNull();
+    expect(parseCatalogVersionAssetId("catalog:item@0")).toBeNull();
+  });
+
+  it("rejects ambiguous or invalid catalog version ids", () => {
+    expect(() => catalogVersionAssetId("bad@id", 1)).toThrow();
+    expect(() => catalogVersionAssetId("item", 0)).toThrow();
   });
 });

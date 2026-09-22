@@ -309,7 +309,7 @@ export class RoomSceneRenderer {
 
   private buildObject(level: Level, object: ObjectInstance): void {
     const definition = getBuiltinAssetDefinition(object.assetId);
-    if (!definition) return;
+    const primitive: BuiltinPrimitiveKind = definition?.primitive ?? "box";
 
     const group = new Group();
     group.name = object.id;
@@ -322,7 +322,7 @@ export class RoomSceneRenderer {
     );
     group.rotation.y = -(object.rotationDeg * Math.PI) / 180;
 
-    this.addPrimitiveParts(group, object, definition.primitive);
+    this.addPrimitiveParts(group, object, primitive);
     this.generated.add(group);
   }
 

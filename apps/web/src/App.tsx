@@ -1,6 +1,8 @@
 import {
   BUILTIN_ASSETS,
+  catalogVersionAssetId,
   getBuiltinAssetDefinition,
+  parseCatalogVersionAssetId,
 } from "@roomcraft/catalog";
 import {
   createEmptyProject,
@@ -53,6 +55,7 @@ import {
   NumberField,
   Panel,
   SegmentedControl,
+  TextField,
   Toolbar,
 } from "@roomcraft/ui";
 import {
@@ -62,6 +65,12 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { assetContentUrl, readImageDimensions, uploadBlueprintAsset } from "./assets-api";
+import {
+  getCatalogItem,
+  searchCatalogItems,
+  type CatalogItemSummaryDto,
+  type CatalogVersionDto,
+} from "./catalog-api";
 import { useProjectSession, type SaveState } from "./use-project-session";
 
 type ViewMode = "2d" | "3d";
@@ -85,6 +94,44 @@ interface BlueprintCalibrationDraft {
   secondPoint: PlanPoint | null;
 }
 
+interface FurnitureDefinition {
+  id: string;
+  name: string;
+  source: "builtin" | "catalog";
+  category: string;
+  manufacturer: string | null;
+  sku: string | null;
+  productUrl: string | null;
+  thumbnailAssetId: string | null;
+  defaultDimensionsMm: {
+    widthMm: number;
+    depthMm: number;
+    heightMm: number;
+  };
+  minimumDimensionsMm: {
+    widthMm: number;
+    depthMm: number;
+    heightMm: number;
+  };
+  resizable: boolean;
+}
+
+const BUILTIN_FURNITURE: readonly FurnitureDefinition[] = BUILTIN_ASSETS.map(
+  (asset) => ({
+    id: asset.id,
+    name: asset.name,
+    source: "builtin",
+    category: asset.category,
+    manufacturer: null,
+    sku: null,
+    productUrl: null,
+    thumbnailAssetId: null,
+    defaultDimensionsMm: asset.defaultDimensionsMm,
+    minimumDimensionsMm: asset.minimumDimensionsMm,
+    resizable: asset.resizable,
+  }),
+);
+
 const VIEW_OPTIONS = [
   { value: "2d", label: "2D" },
   { value: "3d", label: "3D" },
@@ -102,6 +149,31 @@ const OPENING_PRESETS = {
 
 const CURRENT_PROJECT_KEY = "roomcraft.currentProjectId";
 
+function catalogFurnitureDefinition(
+  item: CatalogItemSummaryDto,
+  version: CatalogVersionDto = item.version,
+): FurnitureDefinition {
+  const dimensions = {
+    widthMm: version.widthMm,
+    depthMm: version.depthMm,
+    heightMm: version.heightMm,
+  };
+
+  return {
+    id: catalogVersionAssetId(item.id, version.version),
+    name: item.name,
+    source: "catalog",
+    category: item.category,
+    manufacturer: item.manufacturer,
+    sku: item.sku,
+    productUrl: item.productUrl,
+    thumbnailAssetId: version.thumbnailAssetId,
+    defaultDimensionsMm: dimensions,
+    minimumDimensionsMm: dimensions,
+    resizable: false,
+  };
+}
+
 export function App() {
   const session = useProjectSession(() =>
     createEmptyProject(getOrCreateProjectId(), "My apartment"),
@@ -116,6 +188,17 @@ export function App() {
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [activeFurnitureAssetId, setActiveFurnitureAssetId] =
     useState<string>("builtin:box");
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogResults, setCatalogResults] = useState<FurnitureDefinition[]>([]);
+  const [catalogDefinitions, setCatalogDefinitions] = useState<
+    Record<string, FurnitureDefinition>
+  >({});
+  const [catalogSearchState, setCatalogSearchState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [catalogSearchError, setCatalogSearchError] = useState<string | null>(null);
+  const [catalogResultTotal, setCatalogResultTotal] = useState(0);
+  const catalogRequestRef = useRef(0);
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
   const blueprintFileRef = useRef<HTMLInputElement | null>(null);
   const [blueprintImportState, setBlueprintImportState] = useState<"idle" | "uploading">("idle");
@@ -203,8 +286,117 @@ export function App() {
       ? null
       : level.objects.find((object) => object.id === selectedObjectId) ?? null;
   const selectedObjectDefinition = selectedObject
-    ? getBuiltinAssetDefinition(selectedObject.assetId)
+    ? resolveFurnitureDefinition(selectedObject.assetId)
     : null;
+  const activeFurnitureDefinition =
+    resolveFurnitureDefinition(activeFurnitureAssetId) ??
+    BUILTIN_FURNITURE[0] ??
+    null;
+  const selectedObjectIsCatalog =
+    selectedObject !== null &&
+    parseCatalogVersionAssetId(selectedObject.assetId) !== null;
+  const selectedObjectDimensionsLocked =
+    selectedObject?.locked === true ||
+    selectedObjectIsCatalog ||
+    selectedObjectDefinition?.resizable === false;
+  const objectAssetLabels: Readonly<Record<string, string>> = Object.fromEntries([
+    ...BUILTIN_FURNITURE.map(
+      (definition) => [definition.id, definition.name] as const,
+    ),
+    ...Object.values(catalogDefinitions).map(
+      (definition) => [definition.id, definition.name] as const,
+    ),
+  ]);
+
+  function resolveFurnitureDefinition(
+    assetId: string,
+  ): FurnitureDefinition | null {
+    const builtin = getBuiltinAssetDefinition(assetId);
+    if (builtin) {
+      return (
+        BUILTIN_FURNITURE.find((candidate) => candidate.id === builtin.id) ??
+        null
+      );
+    }
+
+    return catalogDefinitions[assetId] ?? null;
+  }
+
+  async function runCatalogSearch(query = catalogQuery) {
+    const requestId = ++catalogRequestRef.current;
+    setCatalogSearchState("loading");
+    setCatalogSearchError(null);
+
+    try {
+      const response = await searchCatalogItems({
+        query,
+        limit: 24,
+      });
+      if (requestId !== catalogRequestRef.current) return;
+
+      const definitions = response.items.map((item) =>
+        catalogFurnitureDefinition(item),
+      );
+      setCatalogResults(definitions);
+      setCatalogResultTotal(response.total);
+      setCatalogDefinitions((current) => {
+        const next = { ...current };
+        for (const definition of definitions) next[definition.id] = definition;
+        return next;
+      });
+      setCatalogSearchState("ready");
+    } catch (error) {
+      if (requestId !== catalogRequestRef.current) return;
+      setCatalogSearchState("error");
+      setCatalogSearchError(
+        error instanceof Error ? error.message : "Catalog search failed.",
+      );
+    }
+  }
+
+  async function loadCatalogDefinition(assetId: string) {
+    if (catalogDefinitions[assetId]) return;
+
+    const reference = parseCatalogVersionAssetId(assetId);
+    if (!reference) return;
+
+    try {
+      const item = await getCatalogItem(reference.itemId);
+      const version = item.versions.find(
+        (candidate) => candidate.version === reference.version,
+      );
+      if (!version) {
+        throw new Error(
+          `Catalog version ${reference.itemId}@${reference.version} no longer exists.`,
+        );
+      }
+
+      const definition = catalogFurnitureDefinition(
+        {
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          manufacturer: item.manufacturer,
+          sku: item.sku,
+          productUrl: item.productUrl,
+          currentVersion: item.currentVersion,
+          updatedUtc: item.updatedUtc,
+          version,
+        },
+        version,
+      );
+      setCatalogDefinitions((current) => ({
+        ...current,
+        [definition.id]: definition,
+      }));
+    } catch (error) {
+      setCatalogSearchError(
+        error instanceof Error
+          ? error.message
+          : "Catalog item could not be loaded.",
+      );
+    }
+  }
 
   function currentLevel() {
     return document.levels.find((candidate) => candidate.id === levelId) ?? null;
@@ -372,12 +564,11 @@ export function App() {
     }
 
     if (activeTool === "furniture") {
-      const definition = getBuiltinAssetDefinition(activeFurnitureAssetId);
       setHoverSnap(
-        definition
+        activeFurnitureDefinition
           ? snapFurniturePosition(point, {
-              widthMm: definition.defaultDimensionsMm.widthMm,
-              depthMm: definition.defaultDimensionsMm.depthMm,
+              widthMm: activeFurnitureDefinition.defaultDimensionsMm.widthMm,
+              depthMm: activeFurnitureDefinition.defaultDimensionsMm.depthMm,
               rotationDeg: 0,
             })
           : null,
@@ -474,7 +665,7 @@ export function App() {
   }
 
   function handleFurniturePoint(point: PlanPoint) {
-    const definition = getBuiltinAssetDefinition(activeFurnitureAssetId);
+    const definition = activeFurnitureDefinition;
     if (!definition) return;
 
     const snapped = snapFurniturePosition(point, {
@@ -664,6 +855,10 @@ export function App() {
 
   function selectObject(objectId: string) {
     setSelection(selectOnly({ kind: "object", id: objectId }));
+    const object = currentLevel()?.objects.find(
+      (candidate) => candidate.id === objectId,
+    );
+    if (object) void loadCatalogDefinition(object.assetId);
   }
 
   function updateObject(objectId: string, changes: Partial<ObjectInstance>) {
@@ -761,6 +956,13 @@ export function App() {
     cancelTransient();
     setActiveTool(tool);
     setViewMode("2d");
+  }
+
+  function openFurnitureTool() {
+    selectTool("furniture");
+    if (catalogSearchState === "idle") {
+      void runCatalogSearch("");
+    }
   }
 
   function selectWall(wallId: string) {
@@ -892,8 +1094,8 @@ export function App() {
           />
           <Button
             variant={activeTool === "furniture" ? "primary" : "ghost"}
-            onClick={() => selectTool("furniture")}
-            title="Place generic furniture with exact dimensions"
+            onClick={openFurnitureTool}
+            title="Place built-in or catalog furniture with exact dimensions"
           >
             Furniture
           </Button>
@@ -904,6 +1106,7 @@ export function App() {
             <PlanCanvas
               blueprints={projection.blueprints}
               objects={projection.objects}
+              objectAssetLabels={objectAssetLabels}
               walls={projection.walls}
               openings={projection.openings}
               rooms={projection.rooms}
@@ -1069,10 +1272,73 @@ export function App() {
               {activeTool === "furniture" ? (
                 <div className="furniture-palette">
                   <span className="eyebrow">Furniture</span>
-                  <div className="furniture-palette__grid">
-                    {BUILTIN_ASSETS.map((asset) => (
+
+                  <div className="furniture-palette__section">
+                    <strong className="furniture-palette__section-title">
+                      Quick shapes
+                    </strong>
+                    <div className="furniture-palette__grid">
+                      {BUILTIN_FURNITURE.map((asset) => (
+                        <Button
+                          key={asset.id}
+                          type="button"
+                          variant={
+                            asset.id === activeFurnitureAssetId
+                              ? "primary"
+                              : "secondary"
+                          }
+                          onClick={() => setActiveFurnitureAssetId(asset.id)}
+                        >
+                          {asset.name}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <form
+                    className="catalog-search"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void runCatalogSearch();
+                    }}
+                  >
+                    <TextField
+                      label="Catalog search"
+                      value={catalogQuery}
+                      onChange={setCatalogQuery}
+                      placeholder="Name, manufacturer or SKU"
+                      inputMode="search"
+                    />
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      disabled={catalogSearchState === "loading"}
+                    >
+                      {catalogSearchState === "loading"
+                        ? "Searching…"
+                        : "Search"}
+                    </Button>
+                  </form>
+
+                  {catalogSearchError ? (
+                    <div className="inline-error" role="alert">
+                      {catalogSearchError}
+                    </div>
+                  ) : null}
+
+                  {catalogSearchState === "ready" ? (
+                    <span className="property-hint">
+                      {catalogResultTotal} catalog item
+                      {catalogResultTotal === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+
+                  <div className="catalog-results" role="list">
+                    {catalogResults.map((asset) => (
                       <Button
                         key={asset.id}
+                        type="button"
+                        className="catalog-card"
                         variant={
                           asset.id === activeFurnitureAssetId
                             ? "primary"
@@ -1080,12 +1346,39 @@ export function App() {
                         }
                         onClick={() => setActiveFurnitureAssetId(asset.id)}
                       >
-                        {asset.name}
+                        {asset.thumbnailAssetId ? (
+                          <img
+                            className="catalog-card__thumbnail"
+                            src={assetContentUrl(asset.thumbnailAssetId)}
+                            alt=""
+                          />
+                        ) : (
+                          <span
+                            className="catalog-card__placeholder"
+                            aria-hidden="true"
+                          >
+                            □
+                          </span>
+                        )}
+                        <span className="catalog-card__body">
+                          <strong>{asset.name}</strong>
+                          <span>
+                            {asset.manufacturer ?? asset.category}
+                            {asset.sku ? ` · ${asset.sku}` : ""}
+                          </span>
+                          <span>
+                            {asset.defaultDimensionsMm.widthMm} ×{" "}
+                            {asset.defaultDimensionsMm.depthMm} ×{" "}
+                            {asset.defaultDimensionsMm.heightMm} mm
+                          </span>
+                        </span>
                       </Button>
                     ))}
                   </div>
+
                   <span className="property-hint">
-                    Choose a type, then click the plan to place it.
+                    Catalog products are placed with their current immutable
+                    version and exact dimensions.
                   </span>
                 </div>
               ) : null}
@@ -1375,6 +1668,38 @@ export function App() {
                   <span className="eyebrow">
                     Selected {selectedObjectDefinition?.name ?? "object"}
                   </span>
+                  {selectedObjectDefinition?.source === "catalog" ? (
+                    <>
+                      <dl className="stats stats--compact">
+                        <div>
+                          <dt>Source</dt>
+                          <dd>Catalog</dd>
+                        </div>
+                        <div>
+                          <dt>Manufacturer</dt>
+                          <dd>{selectedObjectDefinition.manufacturer ?? "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>SKU</dt>
+                          <dd>{selectedObjectDefinition.sku ?? "—"}</dd>
+                        </div>
+                      </dl>
+                      {selectedObjectDefinition.productUrl ? (
+                        <a
+                          className="product-link"
+                          href={selectedObjectDefinition.productUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open product page
+                        </a>
+                      ) : null}
+                    </>
+                  ) : selectedObjectIsCatalog ? (
+                    <span className="property-hint">
+                      Loading the saved catalog version…
+                    </span>
+                  ) : null}
                   <NumberField
                     label="X"
                     value={selectedObject.xMm}
@@ -1412,7 +1737,7 @@ export function App() {
                     minMm={
                       selectedObjectDefinition?.minimumDimensionsMm.widthMm ?? 1
                     }
-                    disabled={selectedObject.locked}
+                    disabled={selectedObjectDimensionsLocked}
                     onCommit={(valueMm) =>
                       updateSelectedObject({ widthMm: valueMm })
                     }
@@ -1423,7 +1748,7 @@ export function App() {
                     minMm={
                       selectedObjectDefinition?.minimumDimensionsMm.depthMm ?? 1
                     }
-                    disabled={selectedObject.locked}
+                    disabled={selectedObjectDimensionsLocked}
                     onCommit={(valueMm) =>
                       updateSelectedObject({ depthMm: valueMm })
                     }
@@ -1434,7 +1759,7 @@ export function App() {
                     minMm={
                       selectedObjectDefinition?.minimumDimensionsMm.heightMm ?? 1
                     }
-                    disabled={selectedObject.locked}
+                    disabled={selectedObjectDimensionsLocked}
                     onCommit={(valueMm) =>
                       updateSelectedObject({ heightMm: valueMm })
                     }
@@ -1485,6 +1810,7 @@ export function App() {
 interface PlanCanvasProps {
   blueprints: ReturnType<typeof projectLevel2D>["blueprints"];
   objects: ReturnType<typeof projectLevel2D>["objects"];
+  objectAssetLabels: Readonly<Record<string, string>>;
   walls: ReturnType<typeof projectLevel2D>["walls"];
   openings: ReturnType<typeof projectLevel2D>["openings"];
   rooms: ReturnType<typeof projectLevel2D>["rooms"];
@@ -1516,6 +1842,7 @@ interface PlanCanvasProps {
 function PlanCanvas({
   blueprints,
   objects,
+  objectAssetLabels,
   walls,
   openings,
   rooms,
@@ -1946,7 +2273,7 @@ function PlanCanvas({
               : null;
           const xMm = preview?.xMm ?? object.centerXmm;
           const yMm = preview?.yMm ?? object.centerYmm;
-          const definition = getBuiltinAssetDefinition(object.assetId);
+          const label = objectAssetLabels[object.assetId] ?? "Object";
 
           return (
             <g
@@ -1990,7 +2317,7 @@ function PlanCanvas({
                   dominantBaseline="middle"
                   pointerEvents="none"
                 >
-                  {definition?.name ?? "Object"}
+                  {label}
                 </text>
               ) : null}
             </g>
