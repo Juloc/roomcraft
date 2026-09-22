@@ -65,7 +65,7 @@ public static class AssetsModule
 
     public static IEndpointRouteBuilder MapAssetsEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/assets");
+        var group = endpoints.MapGroup("/api/assets").RequireAuthorization();
         group.MapPost("/blueprints", UploadBlueprintAsync).DisableAntiforgery();
         group.MapPost("/models", UploadModelAsync).DisableAntiforgery();
         group.MapGet("/{assetId}", GetAssetAsync);
