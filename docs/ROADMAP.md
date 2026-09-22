@@ -217,25 +217,30 @@ Phase 6 exit criteria:
 
 ---
 
-## Phase 7 — Parametric DIY furniture ⬜
+## Phase 7 — Parametric DIY furniture 🚧
 
 Goal: build practical custom furniture without Blender.
 
 Initial semantic builder:
-- carcass
-- panels
-- shelves
-- doors
-- drawer fronts
-- plinth/legs
-- worktop
-- thickness/material parameters
+- reusable parametric furniture definitions ✅
+- cabinet carcass / side panels ✅
+- shelves ✅
+- open / single-door / double-door fronts ✅
+- plinth ✅
+- optional worktop ✅
+- panel / back / shelf / front thickness parameters ✅
+- semantic material assignment ✅
+- exact instance width / depth / height with construction minimums ✅
+- real derived 3D parts; no persisted mesh state ✅
+- undoable definition editing ✅
 
-Derived later:
-- cut list
-- material quantities
-- hardware list
-- estimated cost
+Derived:
+- grouped cut list ✅
+- material quantities ⬜
+- drawer fronts / drawers ⬜
+- legs / hardware rules ⬜
+- hardware list ⬜
+- estimated cost ⬜
 
 Definition of done:
 - a user can define a cabinet numerically and resize it later without editing meshes
