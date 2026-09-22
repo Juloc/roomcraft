@@ -247,17 +247,20 @@ Definition of done:
 
 ---
 
-## Phase 8 — Export ⬜
+## Phase 8 — Export 🚧
 
 Goal: no vendor lock-in and useful external workflows.
 
 V1:
-- native RoomCraft document export/import
-- SVG floorplan
-- PNG/JPEG viewport
-- GLB project export
+- native RoomCraft document export/import ✅
+- deterministic schema migration on native import ✅
+- SVG floorplan generated from semantic 2D projection ✅
+- room labels / furniture footprints in SVG ✅
+- PNG/JPEG viewport ⬜
+- GLB project export ⬜
 
 Later:
+- portable RoomCraft bundle with referenced binary assets ⬜
 - PDF vector floorplan
 - DXF
 - additional 3D adapters

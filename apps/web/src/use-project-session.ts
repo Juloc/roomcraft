@@ -15,6 +15,7 @@ export interface ProjectSession {
   execute(command: EditorCommand): ProjectDocument;
   undo(): ProjectDocument;
   redo(): ProjectDocument;
+  importDocument(document: ProjectDocument): void;
   saveNow(): Promise<void>;
 }
 
@@ -166,6 +167,17 @@ export function useProjectSession(createInitialDocument: () => ProjectDocument):
     return next;
   }, [replaceDocument]);
 
+  const importDocument = useCallback((value: ProjectDocument): void => {
+    const history = new CommandHistory(value);
+    historyRef.current = history;
+    documentRef.current = value;
+    setDocument(value);
+    setRevisionValue(null);
+    editVersionRef.current += 1;
+    setSaveError(null);
+    setSaveStateValue("unsaved");
+  }, [setRevisionValue, setSaveStateValue]);
+
   const history = requireHistory(historyRef);
   return {
     document,
@@ -177,6 +189,7 @@ export function useProjectSession(createInitialDocument: () => ProjectDocument):
     execute,
     undo,
     redo,
+    importDocument,
     saveNow,
   };
 }

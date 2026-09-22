@@ -49,6 +49,13 @@ import {
   type ViewportSizePx,
 } from "@roomcraft/editor-core";
 import {
+  exportLevelSvg,
+  parseRoomCraftDocumentFile,
+  roomCraftFileName,
+  serializeRoomCraftDocument,
+  svgFloorPlanFileName,
+} from "@roomcraft/export";
+import {
   DEFAULT_CABINET_DIMENSIONS,
   cabinetMinimumDimensions,
   createDefaultCabinetDefinition,
@@ -249,9 +256,11 @@ export function App() {
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
   const blueprintFileRef = useRef<HTMLInputElement | null>(null);
   const modelFileRef = useRef<HTMLInputElement | null>(null);
+  const projectImportRef = useRef<HTMLInputElement | null>(null);
   const [modelImportState, setModelImportState] = useState<"idle" | "importing">("idle");
   const [modelImportError, setModelImportError] = useState<string | null>(null);
   const [parametricEditError, setParametricEditError] = useState<string | null>(null);
+  const [projectFileError, setProjectFileError] = useState<string | null>(null);
   const [blueprintImportState, setBlueprintImportState] = useState<"idle" | "uploading">("idle");
   const [blueprintImportError, setBlueprintImportError] = useState<string | null>(null);
   const [calibrationDraft, setCalibrationDraft] = useState<BlueprintCalibrationDraft | null>(null);
@@ -1251,6 +1260,44 @@ export function App() {
     );
   }
 
+  function exportNativeProject() {
+    downloadTextFile(
+      roomCraftFileName(document),
+      serializeRoomCraftDocument(document),
+      "application/json;charset=utf-8",
+    );
+  }
+
+  function exportSvgFloorPlan() {
+    downloadTextFile(
+      svgFloorPlanFileName(document, levelId),
+      exportLevelSvg(document, levelId),
+      "image/svg+xml;charset=utf-8",
+    );
+  }
+
+  async function importNativeProject(file: File) {
+    setProjectFileError(null);
+
+    try {
+      const source = await file.text();
+      const imported = parseRoomCraftDocumentFile(source);
+      window.localStorage.setItem(CURRENT_PROJECT_KEY, imported.id);
+      session.importDocument(imported);
+      setActiveLevelId(imported.levels[0]?.id ?? null);
+      setSelection(EMPTY_SELECTION);
+      setActiveTool("select");
+      setViewMode("2d");
+      setGhostMode("off");
+      setThreeLevelScope("active");
+      setParametricEditError(null);
+    } catch (error) {
+      setProjectFileError(
+        error instanceof Error ? error.message : "Project import failed.",
+      );
+    }
+  }
+
   function changeView(mode: ViewMode) {
     setViewMode(mode);
     if (mode !== "2d") cancelTransient();
@@ -1287,6 +1334,27 @@ export function App() {
             disabled={saveState === "saving" || saveState === "saved"}
           >
             {saveState === "saving" ? "Saving…" : "Save"}
+          </Button>
+          <Button variant="ghost" onClick={exportNativeProject}>
+            Export project
+          </Button>
+          <Button variant="ghost" onClick={() => projectImportRef.current?.click()}>
+            Import project
+          </Button>
+          <input
+            ref={projectImportRef}
+            className="visually-hidden"
+            type="file"
+            accept=".roomcraft,application/json"
+            tabIndex={-1}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (file) void importNativeProject(file);
+            }}
+          />
+          <Button variant="ghost" onClick={exportSvgFloorPlan}>
+            Export SVG
           </Button>
           <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
             {saveStateLabel(saveState)}
@@ -1735,7 +1803,13 @@ export function App() {
                 </div>
               ) : null}
 
-                            {blueprintImportError ? (
+                            {projectFileError ? (
+                <div className="inline-error" role="alert">
+                  {projectFileError}
+                </div>
+              ) : null}
+
+              {blueprintImportError ? (
                 <div className="inline-error" role="alert">
                   {blueprintImportError}
                 </div>
@@ -3251,6 +3325,23 @@ function formatAreaSquareMetres(areaMm2: number): string {
     minimumFractionDigits: areaM2 < 10 ? 2 : 1,
     maximumFractionDigits: 2,
   });
+}
+
+function downloadTextFile(
+  fileName: string,
+  contents: string,
+  contentType: string,
+): void {
+  const blob = new Blob([contents], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.style.display = "none";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function saveStateLabel(state: SaveState): string {
