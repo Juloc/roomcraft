@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -35,20 +36,48 @@ public static class ProjectsModule
 
     public static IEndpointRouteBuilder MapProjectsEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/projects");
+        var group = endpoints.MapGroup("/api/projects").RequireAuthorization();
 
+        group.MapGet("", ListProjectsAsync);
         group.MapPost("", CreateProjectAsync);
+        group.MapPost("/{projectId}/adopt", AdoptProjectAsync);
         group.MapGet("/{projectId}", GetProjectAsync);
         group.MapPut("/{projectId}", UpdateProjectAsync);
 
         return endpoints;
     }
 
-    private static async Task<IResult> CreateProjectAsync(
-        ProjectDocumentRequest request,
+    private static async Task<IResult> ListProjectsAsync(
+        ClaimsPrincipal principal,
         ProjectsDbContext db,
         CancellationToken cancellationToken)
     {
+        var userId = GetUserId(principal);
+        if (userId is null) return Results.Unauthorized();
+
+        var projects = await db.Projects
+            .AsNoTracking()
+            .Where(item => item.OwnerId == userId)
+            .OrderByDescending(item => item.UpdatedUtc)
+            .Select(item => new ProjectSummaryResponse(
+                item.Id,
+                item.Name,
+                item.CurrentRevision,
+                item.UpdatedUtc))
+            .ToListAsync(cancellationToken);
+
+        return Results.Ok(projects);
+    }
+
+    private static async Task<IResult> CreateProjectAsync(
+        ProjectDocumentRequest request,
+        ClaimsPrincipal principal,
+        ProjectsDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId(principal);
+        if (userId is null) return Results.Unauthorized();
+
         ProjectDocumentMetadata metadata;
         try
         {
@@ -69,6 +98,7 @@ public static class ProjectsModule
         {
             Id = metadata.Id,
             Name = metadata.Name,
+            OwnerId = userId,
             CurrentRevision = 1,
             CreatedUtc = now,
             UpdatedUtc = now,
@@ -89,14 +119,47 @@ public static class ProjectsModule
         return Results.Created($"/api/projects/{project.Id}", ToResponse(project, revision));
     }
 
-    private static async Task<IResult> GetProjectAsync(
+    private static async Task<IResult> AdoptProjectAsync(
         string projectId,
+        ClaimsPrincipal principal,
         ProjectsDbContext db,
         CancellationToken cancellationToken)
     {
+        var userId = GetUserId(principal);
+        if (userId is null) return Results.Unauthorized();
+
+        var project = await db.Projects.SingleOrDefaultAsync(
+            item => item.Id == projectId,
+            cancellationToken);
+        if (project is null) return Results.NotFound();
+
+        if (project.OwnerId is not null)
+        {
+            return project.OwnerId == userId
+                ? Results.Ok(ToSummary(project))
+                : Results.NotFound();
+        }
+
+        project.OwnerId = userId;
+        project.UpdatedUtc = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(ToSummary(project));
+    }
+
+    private static async Task<IResult> GetProjectAsync(
+        string projectId,
+        ClaimsPrincipal principal,
+        ProjectsDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId(principal);
+        if (userId is null) return Results.Unauthorized();
+
         var project = await db.Projects
             .AsNoTracking()
-            .SingleOrDefaultAsync(item => item.Id == projectId, cancellationToken);
+            .SingleOrDefaultAsync(
+                item => item.Id == projectId && item.OwnerId == userId,
+                cancellationToken);
         if (project is null) return Results.NotFound();
 
         var revision = await db.ProjectRevisions
@@ -112,9 +175,13 @@ public static class ProjectsModule
         string projectId,
         ProjectDocumentRequest request,
         HttpRequest httpRequest,
+        ClaimsPrincipal principal,
         ProjectsDbContext db,
         CancellationToken cancellationToken)
     {
+        var userId = GetUserId(principal);
+        if (userId is null) return Results.Unauthorized();
+
         if (!TryReadExpectedRevision(httpRequest, out var expectedRevision))
         {
             return Results.StatusCode(StatusCodes.Status428PreconditionRequired);
@@ -136,7 +203,7 @@ public static class ProjectsModule
         }
 
         var project = await db.Projects.SingleOrDefaultAsync(
-            item => item.Id == projectId,
+            item => item.Id == projectId && item.OwnerId == userId,
             cancellationToken);
         if (project is null) return Results.NotFound();
 
@@ -187,6 +254,12 @@ public static class ProjectsModule
             project.UpdatedUtc,
             parsed.RootElement.Clone());
     }
+
+    private static ProjectSummaryResponse ToSummary(ProjectRecord project) =>
+        new(project.Id, project.Name, project.CurrentRevision, project.UpdatedUtc);
+
+    private static string? GetUserId(ClaimsPrincipal principal) =>
+        principal.FindFirstValue(ClaimTypes.NameIdentifier);
 
     private static ProjectDocumentMetadata ReadMetadata(JsonElement document)
     {
@@ -245,3 +318,9 @@ public sealed record ProjectResponse(
     long Revision,
     DateTimeOffset UpdatedUtc,
     JsonElement Document);
+
+public sealed record ProjectSummaryResponse(
+    string Id,
+    string Name,
+    long Revision,
+    DateTimeOffset UpdatedUtc);
