@@ -59,6 +59,8 @@ export { formatLengthInput, parseLengthInput } from "./length";
 
 export { NumberField } from "./NumberField";
 export type { NumberFieldProps } from "./NumberField";
+export { TextField } from "./TextField";
+export type { TextFieldProps } from "./TextField";
 export { formatNumberInput, parseNumberInput } from "./number";
 
 export interface LayerListItem {
