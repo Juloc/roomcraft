@@ -5,8 +5,10 @@ roomcraft_authenticate() {
   local cookie_jar="$2"
   local username="ci-admin"
   local password="roomcraft-ci-password"
+  local credentials
 
   rm -f "$cookie_jar"
+  printf -v credentials '{"username":"%s","password":"%s"}' "$username" "$password"
 
   local session
   session="$(command curl --fail --silent --show-error "$api_url/api/auth/session")"
@@ -18,9 +20,9 @@ PY
 )"
 
   if [[ "$setup_required" == "true" ]]; then
-    command curl --fail --silent --show-error       --cookie-jar "$cookie_jar"       -X POST       -H "Content-Type: application/json"       --data-binary "{"username":"$username","password":"$password"}"       "$api_url/api/auth/setup" >/dev/null
+    command curl       --fail       --silent       --show-error       --cookie-jar "$cookie_jar"       -X POST       -H "Content-Type: application/json"       --data-binary "$credentials"       "$api_url/api/auth/setup" >/dev/null
   else
-    command curl --fail --silent --show-error       --cookie-jar "$cookie_jar"       -X POST       -H "Content-Type: application/json"       --data-binary "{"username":"$username","password":"$password"}"       "$api_url/api/auth/login" >/dev/null
+    command curl       --fail       --silent       --show-error       --cookie-jar "$cookie_jar"       -X POST       -H "Content-Type: application/json"       --data-binary "$credentials"       "$api_url/api/auth/login" >/dev/null
   fi
 
   local authenticated
