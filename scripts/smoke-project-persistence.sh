@@ -40,7 +40,7 @@ fi
 project_document() {
   local name="$1"
   cat <<JSON
-{"document":{"schemaVersion":3,"id":"$PROJECT_ID","name":"$name","settings":{"unitSystem":"metric","gridSizeMm":100,"angleSnapDeg":15},"levels":[{"id":"level_ground","name":"Ground floor","elevationMm":0,"defaultWallHeightMm":2500,"vertices":[],"walls":[],"openings":[],"objects":[],"blueprints":[]}]}}
+{"document":{"schemaVersion":4,"id":"$PROJECT_ID","name":"$name","settings":{"unitSystem":"metric","gridSizeMm":100,"angleSnapDeg":15},"levels":[{"id":"level_ground","name":"Ground floor","elevationMm":0,"defaultWallHeightMm":2500,"floorThicknessMm":200,"vertices":[],"walls":[],"openings":[],"objects":[],"blueprints":[]}]}}
 JSON
 }
 
@@ -62,7 +62,7 @@ python3 - "$GET_RESPONSE" <<'PY'
 import json, sys
 payload = json.loads(sys.argv[1])
 assert payload["revision"] == 1, payload
-assert payload["document"]["schemaVersion"] == 3, payload
+assert payload["document"]["schemaVersion"] == 4, payload
 PY
 
 UPDATE_RESPONSE=$(project_document "CI Project Updated" | curl --fail --silent --show-error \
