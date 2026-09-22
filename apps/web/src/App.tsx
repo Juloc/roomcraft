@@ -1,12 +1,18 @@
 import {
+  BUILTIN_ASSETS,
+  getBuiltinAssetDefinition,
+} from "@roomcraft/catalog";
+import {
   createEmptyProject,
   type BlueprintReference,
+  type ObjectInstance,
   type Opening,
   type ProjectDocument,
 } from "@roomcraft/document";
 import {
   AddBlueprintCommand,
   AddLevelCommand,
+  AddObjectCommand,
   AddOpeningCommand,
   AddWallCommand,
   CalibrateBlueprintCommand,
@@ -14,9 +20,11 @@ import {
   MoveBlueprintLayerCommand,
   RemoveBlueprintCommand,
   RemoveLevelCommand,
+  RemoveObjectCommand,
   SetWallLengthCommand,
   UpdateBlueprintCommand,
   UpdateLevelCommand,
+  UpdateObjectCommand,
   DEFAULT_PLAN_CAMERA,
   duplicateLevelShell,
   fitPlanCamera,
@@ -57,7 +65,13 @@ import { useProjectSession, type SaveState } from "./use-project-session";
 
 type ViewMode = "2d" | "3d";
 type GhostMode = "off" | "below" | "above";
-type EditorTool = "select" | "wall" | "door" | "window" | "blueprint-calibrate";
+type EditorTool =
+  | "select"
+  | "wall"
+  | "door"
+  | "window"
+  | "furniture"
+  | "blueprint-calibrate";
 type PlanPoint = PlanSnapResult["point"];
 
 interface WallDraft {
@@ -99,6 +113,8 @@ export function App() {
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
   const [ghostMode, setGhostMode] = useState<GhostMode>("off");
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
+  const [activeFurnitureAssetId, setActiveFurnitureAssetId] =
+    useState<string>("builtin:box");
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
   const blueprintFileRef = useRef<HTMLInputElement | null>(null);
   const [blueprintImportState, setBlueprintImportState] = useState<"idle" | "uploading">("idle");
@@ -176,6 +192,18 @@ export function App() {
     selectedBlueprintId === null
       ? null
       : level.blueprints.find((blueprint) => blueprint.id === selectedBlueprintId) ?? null;
+  const selectedObjectId =
+    selection.primary?.kind === "object" &&
+    level.objects.some((object) => object.id === selection.primary?.id)
+      ? selection.primary.id
+      : null;
+  const selectedObject =
+    selectedObjectId === null
+      ? null
+      : level.objects.find((object) => object.id === selectedObjectId) ?? null;
+  const selectedObjectDefinition = selectedObject
+    ? getBuiltinAssetDefinition(selectedObject.assetId)
+    : null;
 
   function currentLevel() {
     return document.levels.find((candidate) => candidate.id === levelId) ?? null;
@@ -319,7 +347,7 @@ export function App() {
       return;
     }
 
-    if (activeTool === "wall") {
+    if (activeTool === "wall" || activeTool === "furniture") {
       setHoverSnap(snap(point));
       setOpeningHover(null);
       return;
@@ -344,6 +372,11 @@ export function App() {
 
     if (activeTool === "wall") {
       handleWallPoint(point);
+      return;
+    }
+
+    if (activeTool === "furniture") {
+      handleFurniturePoint(point);
       return;
     }
 
@@ -405,6 +438,29 @@ export function App() {
 
     session.execute(new AddOpeningCommand({ levelId, opening }));
     setOpeningHover(null);
+  }
+
+  function handleFurniturePoint(point: PlanPoint) {
+    const definition = getBuiltinAssetDefinition(activeFurnitureAssetId);
+    const snapped = snap(point);
+    if (!definition || !snapped) return;
+
+    const object: ObjectInstance = {
+      id: createEntityId("object"),
+      assetId: definition.id,
+      xMm: Math.round(snapped.point.xMm),
+      yMm: Math.round(snapped.point.yMm),
+      zMm: 0,
+      rotationDeg: 0,
+      widthMm: definition.defaultDimensionsMm.widthMm,
+      depthMm: definition.defaultDimensionsMm.depthMm,
+      heightMm: definition.defaultDimensionsMm.heightMm,
+      locked: false,
+    };
+
+    session.execute(new AddObjectCommand({ levelId, object }));
+    setSelection(selectOnly({ kind: "object", id: object.id }));
+    setHoverSnap(snapped);
   }
 
   function handleCalibrationPoint(point: PlanPoint) {
@@ -567,7 +623,48 @@ export function App() {
     );
   }
 
-  function cancelTransient() {
+  function selectObject(objectId: string) {
+    setSelection(selectOnly({ kind: "object", id: objectId }));
+  }
+
+  function updateObject(objectId: string, changes: Partial<ObjectInstance>) {
+    const object = currentLevel()?.objects.find(
+      (candidate) => candidate.id === objectId,
+    );
+    if (!object) return;
+
+    session.execute(
+      new UpdateObjectCommand({
+        levelId,
+        object: { ...object, ...changes },
+      }),
+    );
+  }
+
+  function updateSelectedObject(changes: Partial<ObjectInstance>) {
+    if (!selectedObjectId) return;
+    updateObject(selectedObjectId, changes);
+  }
+
+  function moveObject(objectId: string, xMm: number, yMm: number) {
+    const object = currentLevel()?.objects.find(
+      (candidate) => candidate.id === objectId,
+    );
+    if (!object || object.locked) return;
+
+    updateObject(objectId, {
+      xMm: Math.round(xMm),
+      yMm: Math.round(yMm),
+    });
+  }
+
+  function removeSelectedObject() {
+    if (!selectedObjectId) return;
+    session.execute(new RemoveObjectCommand(levelId, selectedObjectId));
+    setSelection(EMPTY_SELECTION);
+  }
+
+    function cancelTransient() {
     setWallDraft(null);
     setHoverSnap(null);
     setOpeningHover(null);
@@ -707,7 +804,11 @@ export function App() {
               if (file) void importBlueprint(file);
             }}
           />
-          <Button variant="ghost" disabled title="Furniture placement is not implemented yet">
+          <Button
+            variant={activeTool === "furniture" ? "primary" : "ghost"}
+            onClick={() => selectTool("furniture")}
+            title="Place generic furniture with exact dimensions"
+          >
             Furniture
           </Button>
         </aside>
@@ -716,6 +817,7 @@ export function App() {
           {viewMode === "2d" ? (
             <PlanCanvas
               blueprints={projection.blueprints}
+              objects={projection.objects}
               walls={projection.walls}
               openings={projection.openings}
               rooms={projection.rooms}
@@ -725,6 +827,7 @@ export function App() {
               activeTool={activeTool}
               selectedWallId={selectedWallId}
               selectedBlueprintId={selectedBlueprintId}
+              selectedObjectId={selectedObjectId}
               calibrationDraft={calibrationDraft}
               draftStart={wallDraft?.start.point ?? null}
               draftEnd={wallDraft ? hoverSnap?.point ?? wallDraft.start.point : null}
@@ -735,6 +838,8 @@ export function App() {
               onSelectWall={selectWall}
               onSelectBlueprint={selectBlueprint}
               onMoveBlueprint={moveBlueprint}
+              onSelectObject={selectObject}
+              onMoveObject={moveObject}
               onClearSelection={clearSelection}
               onPointerPosition={handlePlanPointerMove}
               onPointerLeave={handlePlanPointerLeave}
@@ -745,7 +850,7 @@ export function App() {
               document={document}
               levelId={levelId}
               levelScope={threeLevelScope}
-              selectedId={selectedWallId}
+              selectedId={selectedObjectId ?? selectedWallId}
             />
           )}
         </section>
@@ -875,7 +980,31 @@ export function App() {
                 </div>
               </dl>
 
-              {blueprintImportError ? (
+              {activeTool === "furniture" ? (
+                <div className="furniture-palette">
+                  <span className="eyebrow">Furniture</span>
+                  <div className="furniture-palette__grid">
+                    {BUILTIN_ASSETS.map((asset) => (
+                      <Button
+                        key={asset.id}
+                        variant={
+                          asset.id === activeFurnitureAssetId
+                            ? "primary"
+                            : "secondary"
+                        }
+                        onClick={() => setActiveFurnitureAssetId(asset.id)}
+                      >
+                        {asset.name}
+                      </Button>
+                    ))}
+                  </div>
+                  <span className="property-hint">
+                    Choose a type, then click the plan to place it.
+                  </span>
+                </div>
+              ) : null}
+
+                            {blueprintImportError ? (
                 <div className="inline-error" role="alert">
                   {blueprintImportError}
                 </div>
@@ -1155,7 +1284,104 @@ export function App() {
                 </div>
               ) : null}
 
-              <div className="tool-status" aria-live="polite">
+              {selectedObject ? (
+                <div className="selection-properties">
+                  <span className="eyebrow">
+                    Selected {selectedObjectDefinition?.name ?? "object"}
+                  </span>
+                  <NumberField
+                    label="X"
+                    value={selectedObject.xMm}
+                    step={1}
+                    suffix="mm"
+                    disabled={selectedObject.locked}
+                    onCommit={(value) =>
+                      updateSelectedObject({ xMm: Math.round(value) })
+                    }
+                  />
+                  <NumberField
+                    label="Y"
+                    value={selectedObject.yMm}
+                    step={1}
+                    suffix="mm"
+                    disabled={selectedObject.locked}
+                    onCommit={(value) =>
+                      updateSelectedObject({ yMm: Math.round(value) })
+                    }
+                  />
+                  <NumberField
+                    label="Z"
+                    value={selectedObject.zMm}
+                    min={0}
+                    step={1}
+                    suffix="mm"
+                    disabled={selectedObject.locked}
+                    onCommit={(value) =>
+                      updateSelectedObject({ zMm: Math.round(value) })
+                    }
+                  />
+                  <LengthField
+                    label="Width"
+                    valueMm={selectedObject.widthMm}
+                    minMm={
+                      selectedObjectDefinition?.minimumDimensionsMm.widthMm ?? 1
+                    }
+                    disabled={selectedObject.locked}
+                    onCommit={(valueMm) =>
+                      updateSelectedObject({ widthMm: valueMm })
+                    }
+                  />
+                  <LengthField
+                    label="Depth"
+                    valueMm={selectedObject.depthMm}
+                    minMm={
+                      selectedObjectDefinition?.minimumDimensionsMm.depthMm ?? 1
+                    }
+                    disabled={selectedObject.locked}
+                    onCommit={(valueMm) =>
+                      updateSelectedObject({ depthMm: valueMm })
+                    }
+                  />
+                  <LengthField
+                    label="Height"
+                    valueMm={selectedObject.heightMm}
+                    minMm={
+                      selectedObjectDefinition?.minimumDimensionsMm.heightMm ?? 1
+                    }
+                    disabled={selectedObject.locked}
+                    onCommit={(valueMm) =>
+                      updateSelectedObject({ heightMm: valueMm })
+                    }
+                  />
+                  <NumberField
+                    label="Rotation"
+                    value={normalizeDegrees(selectedObject.rotationDeg)}
+                    step={1}
+                    suffix="°"
+                    disabled={selectedObject.locked}
+                    onCommit={(value) =>
+                      updateSelectedObject({
+                        rotationDeg: normalizeDegrees(value),
+                      })
+                    }
+                  />
+                  <div className="selection-actions">
+                    <Button
+                      variant="ghost"
+                      onClick={() =>
+                        updateSelectedObject({ locked: !selectedObject.locked })
+                      }
+                    >
+                      {selectedObject.locked ? "Unlock" : "Lock"}
+                    </Button>
+                    <Button variant="ghost" onClick={removeSelectedObject}>
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+                            <div className="tool-status" aria-live="polite">
                 <strong>{toolTitle(viewMode, activeTool, wallDraft !== null)}</strong>
                 <span>{toolHelp(viewMode, activeTool, wallDraft !== null)}</span>
               </div>
@@ -1169,6 +1395,7 @@ export function App() {
 
 interface PlanCanvasProps {
   blueprints: ReturnType<typeof projectLevel2D>["blueprints"];
+  objects: ReturnType<typeof projectLevel2D>["objects"];
   walls: ReturnType<typeof projectLevel2D>["walls"];
   openings: ReturnType<typeof projectLevel2D>["openings"];
   rooms: ReturnType<typeof projectLevel2D>["rooms"];
@@ -1178,6 +1405,7 @@ interface PlanCanvasProps {
   activeTool: EditorTool;
   selectedWallId: string | null;
   selectedBlueprintId: string | null;
+  selectedObjectId: string | null;
   calibrationDraft: BlueprintCalibrationDraft | null;
   draftStart: PlanPoint | null;
   draftEnd: PlanPoint | null;
@@ -1188,6 +1416,8 @@ interface PlanCanvasProps {
   onSelectWall(wallId: string): void;
   onSelectBlueprint(blueprintId: string): void;
   onMoveBlueprint(blueprintId: string, xMm: number, yMm: number): void;
+  onSelectObject(objectId: string): void;
+  onMoveObject(objectId: string, xMm: number, yMm: number): void;
   onClearSelection(): void;
   onPointerPosition(point: PlanPoint): void;
   onPointerLeave(): void;
@@ -1196,6 +1426,7 @@ interface PlanCanvasProps {
 
 function PlanCanvas({
   blueprints,
+  objects,
   walls,
   openings,
   rooms,
@@ -1205,6 +1436,7 @@ function PlanCanvas({
   activeTool,
   selectedWallId,
   selectedBlueprintId,
+  selectedObjectId,
   calibrationDraft,
   draftStart,
   draftEnd,
@@ -1215,6 +1447,8 @@ function PlanCanvas({
   onSelectWall,
   onSelectBlueprint,
   onMoveBlueprint,
+  onSelectObject,
+  onMoveObject,
   onClearSelection,
   onPointerPosition,
   onPointerLeave,
@@ -1226,9 +1460,10 @@ function PlanCanvas({
     lastClientX: number;
     lastClientY: number;
   } | null>(null);
-  const blueprintDragRef = useRef<{
+  const itemDragRef = useRef<{
     pointerId: number;
-    blueprintId: string;
+    kind: "blueprint" | "object";
+    id: string;
     startPlanXmm: number;
     startPlanYmm: number;
     originXmm: number;
@@ -1236,8 +1471,9 @@ function PlanCanvas({
     currentXmm: number;
     currentYmm: number;
   } | null>(null);
-  const [blueprintDragPreview, setBlueprintDragPreview] = useState<{
-    blueprintId: string;
+  const [itemDragPreview, setItemDragPreview] = useState<{
+    kind: "blueprint" | "object";
+    id: string;
     xMm: number;
     yMm: number;
   } | null>(null);
@@ -1297,17 +1533,24 @@ function PlanCanvas({
     panRef.current = null;
   }
 
-  function beginBlueprintDrag(
+  function beginPlanItemDrag(
     event: ReactPointerEvent<SVGElement>,
-    blueprint: ReturnType<typeof projectLevel2D>["blueprints"][number],
+    item: {
+      kind: "blueprint" | "object";
+      id: string;
+      xMm: number;
+      yMm: number;
+      locked: boolean;
+    },
   ) {
     if (activeTool !== "select" || event.button !== 0) return;
 
     event.preventDefault();
     event.stopPropagation();
-    onSelectBlueprint(blueprint.id);
+    if (item.kind === "blueprint") onSelectBlueprint(item.id);
+    else onSelectObject(item.id);
 
-    if (blueprint.locked) return;
+    if (item.locked) return;
 
     const svg = svgRef.current;
     if (!svg) return;
@@ -1315,25 +1558,29 @@ function PlanCanvas({
     if (!point) return;
 
     svg.setPointerCapture(event.pointerId);
-    blueprintDragRef.current = {
+    itemDragRef.current = {
       pointerId: event.pointerId,
-      blueprintId: blueprint.id,
+      kind: item.kind,
+      id: item.id,
       startPlanXmm: point.xMm,
       startPlanYmm: point.yMm,
-      originXmm: blueprint.xMm,
-      originYmm: blueprint.yMm,
-      currentXmm: blueprint.xMm,
-      currentYmm: blueprint.yMm,
+      originXmm: item.xMm,
+      originYmm: item.yMm,
+      currentXmm: item.xMm,
+      currentYmm: item.yMm,
     };
-    setBlueprintDragPreview({
-      blueprintId: blueprint.id,
-      xMm: blueprint.xMm,
-      yMm: blueprint.yMm,
+    setItemDragPreview({
+      kind: item.kind,
+      id: item.id,
+      xMm: item.xMm,
+      yMm: item.yMm,
     });
   }
 
-  function updateBlueprintDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
-    const drag = blueprintDragRef.current;
+  function updatePlanItemDrag(
+    event: ReactPointerEvent<SVGSVGElement>,
+  ): boolean {
+    const drag = itemDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return false;
 
     const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
@@ -1345,39 +1592,49 @@ function PlanCanvas({
     drag.currentYmm = Math.round(
       drag.originYmm + point.yMm - drag.startPlanYmm,
     );
-    setBlueprintDragPreview({
-      blueprintId: drag.blueprintId,
+    setItemDragPreview({
+      kind: drag.kind,
+      id: drag.id,
       xMm: drag.currentXmm,
       yMm: drag.currentYmm,
     });
     return true;
   }
 
-  function finishBlueprintDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
-    const drag = blueprintDragRef.current;
+  function finishPlanItemDrag(
+    event: ReactPointerEvent<SVGSVGElement>,
+  ): boolean {
+    const drag = itemDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return false;
 
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
-    blueprintDragRef.current = null;
-    setBlueprintDragPreview(null);
+    itemDragRef.current = null;
+    setItemDragPreview(null);
 
-    if (drag.currentXmm !== drag.originXmm || drag.currentYmm !== drag.originYmm) {
-      onMoveBlueprint(drag.blueprintId, drag.currentXmm, drag.currentYmm);
+    if (
+      drag.currentXmm !== drag.originXmm ||
+      drag.currentYmm !== drag.originYmm
+    ) {
+      if (drag.kind === "blueprint") {
+        onMoveBlueprint(drag.id, drag.currentXmm, drag.currentYmm);
+      } else {
+        onMoveObject(drag.id, drag.currentXmm, drag.currentYmm);
+      }
     }
     return true;
   }
 
-  function cancelBlueprintDrag(event?: ReactPointerEvent<SVGSVGElement>) {
-    const drag = blueprintDragRef.current;
+  function cancelPlanItemDrag(event?: ReactPointerEvent<SVGSVGElement>) {
+    const drag = itemDragRef.current;
     const svg = event?.currentTarget ?? svgRef.current;
     if (drag && svg?.hasPointerCapture(drag.pointerId)) {
       svg.releasePointerCapture(drag.pointerId);
     }
-    blueprintDragRef.current = null;
-    setBlueprintDragPreview(null);
+    itemDragRef.current = null;
+    setItemDragPreview(null);
   }
 
   function fitPlan() {
@@ -1389,6 +1646,7 @@ function PlanCanvas({
       ...blueprints
         .filter((blueprint) => blueprint.visible)
         .flatMap(projectedBlueprintCorners),
+      ...objects.flatMap(projectedObjectCorners),
     ];
     setCamera(fitPlanCamera(points, viewportSize));
   }
@@ -1416,7 +1674,7 @@ function PlanCanvas({
           setCamera((current) => zoomPlanCameraAt(current, anchor, scale));
         }}
         onPointerMove={(event) => {
-          if (updateBlueprintDrag(event)) return;
+          if (updatePlanItemDrag(event)) return;
 
           const pan = panRef.current;
           if (pan?.pointerId === event.pointerId) {
@@ -1449,11 +1707,11 @@ function PlanCanvas({
           onPoint(point);
         }}
         onPointerUp={(event) => {
-          if (finishBlueprintDrag(event)) return;
+          if (finishPlanItemDrag(event)) return;
           endPan(event);
         }}
         onPointerCancel={(event) => {
-          cancelBlueprintDrag(event);
+          cancelPlanItemDrag(event);
           endPan(event);
         }}
         onPointerLeave={() => {
@@ -1461,8 +1719,8 @@ function PlanCanvas({
         }}
         onKeyDown={(event) => {
           if (event.key !== "Escape") return;
-          if (blueprintDragRef.current) {
-            cancelBlueprintDrag();
+          if (itemDragRef.current) {
+            cancelPlanItemDrag();
             return;
           }
           onCancel();
@@ -1489,8 +1747,9 @@ function PlanCanvas({
           .map((blueprint) => {
             const selected = blueprint.id === selectedBlueprintId;
             const preview =
-              blueprintDragPreview?.blueprintId === blueprint.id
-                ? blueprintDragPreview
+              itemDragPreview?.kind === "blueprint" &&
+              itemDragPreview.id === blueprint.id
+                ? itemDragPreview
                 : null;
             const originXmm = preview?.xMm ?? blueprint.xMm;
             const originYmm = preview?.yMm ?? blueprint.yMm;
@@ -1513,7 +1772,15 @@ function PlanCanvas({
                   overflow="hidden"
                   opacity={blueprint.opacity}
                   className={`plan-blueprint${blueprint.locked ? " plan-blueprint--locked" : ""}`}
-                  onPointerDown={(event) => beginBlueprintDrag(event, blueprint)}
+                  onPointerDown={(event) =>
+                    beginPlanItemDrag(event, {
+                      kind: "blueprint",
+                      id: blueprint.id,
+                      xMm: blueprint.xMm,
+                      yMm: blueprint.yMm,
+                      locked: blueprint.locked,
+                    })
+                  }
                 >
                   <image
                     href={assetContentUrl(blueprint.assetId)}
@@ -1581,6 +1848,65 @@ function PlanCanvas({
             </text>
           </g>
         ))}
+        {objects.map((object) => {
+          const selected = object.id === selectedObjectId;
+          const preview =
+            itemDragPreview?.kind === "object" &&
+            itemDragPreview.id === object.id
+              ? itemDragPreview
+              : null;
+          const xMm = preview?.xMm ?? object.centerXmm;
+          const yMm = preview?.yMm ?? object.centerYmm;
+          const definition = getBuiltinAssetDefinition(object.assetId);
+
+          return (
+            <g
+              key={object.id}
+              transform={`translate(${xMm} ${yMm}) rotate(${object.rotationDeg})`}
+              className={`plan-object${selected ? " plan-object--selected" : ""}${
+                object.locked ? " plan-object--locked" : ""
+              }`}
+            >
+              <rect
+                x={-object.widthMm / 2}
+                y={-object.depthMm / 2}
+                width={object.widthMm}
+                height={object.depthMm}
+                rx={Math.min(80, object.widthMm / 10, object.depthMm / 10)}
+                className="plan-object__footprint"
+                onPointerDown={(event) =>
+                  beginPlanItemDrag(event, {
+                    kind: "object",
+                    id: object.id,
+                    xMm: object.centerXmm,
+                    yMm: object.centerYmm,
+                    locked: object.locked,
+                  })
+                }
+              />
+              <line
+                x1={-object.widthMm * 0.28}
+                y1={-object.depthMm / 2}
+                x2={object.widthMm * 0.28}
+                y2={-object.depthMm / 2}
+                className="plan-object__front"
+                pointerEvents="none"
+              />
+              {selected ? (
+                <text
+                  x={0}
+                  y={0}
+                  className="plan-object__label"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  pointerEvents="none"
+                >
+                  {definition?.name ?? "Object"}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
         {walls.map((wall) => {
           const selected = wall.id === selectedWallId;
           const dimension = wallDimensionPosition(wall);
@@ -1800,6 +2126,32 @@ function normalizeDegrees(value: number): number {
   return normalized < 0 ? normalized + 360 : normalized;
 }
 
+function projectedObjectCorners(
+  object: ReturnType<typeof projectLevel2D>["objects"][number],
+): PlanPoint[] {
+  const radians = (object.rotationDeg * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const halfWidth = object.widthMm / 2;
+  const halfDepth = object.depthMm / 2;
+
+  return [
+    { xMm: -halfWidth, yMm: -halfDepth },
+    { xMm: halfWidth, yMm: -halfDepth },
+    { xMm: halfWidth, yMm: halfDepth },
+    { xMm: -halfWidth, yMm: halfDepth },
+  ].map((point) => ({
+    xMm:
+      object.centerXmm +
+      cosine * point.xMm -
+      sine * point.yMm,
+    yMm:
+      object.centerYmm +
+      sine * point.xMm +
+      cosine * point.yMm,
+  }));
+}
+
 function projectedBlueprintCorners(
   blueprint: ReturnType<typeof projectLevel2D>["blueprints"][number],
 ): PlanPoint[] {
@@ -1848,6 +2200,7 @@ function toolTitle(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean
   if (viewMode === "3d") return "3D view";
   if (activeTool === "select") return "Select and edit";
   if (activeTool === "blueprint-calibrate") return "Calibrate blueprint";
+  if (activeTool === "furniture") return "Place furniture";
   if (activeTool === "wall") return hasDraft ? "Continue wall" : "Draw wall";
   if (activeTool === "door") return "Place door";
   if (activeTool === "window") return "Place window";
@@ -1859,6 +2212,9 @@ function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean)
   if (activeTool === "select") return "Click a wall or blueprint to inspect it.";
   if (activeTool === "blueprint-calibrate") {
     return "Click two points with a known real-world distance, then enter that distance.";
+  }
+  if (activeTool === "furniture") {
+    return "Choose a furniture type, then click the plan. Placed furniture can be selected, dragged and resized.";
   }
   if (activeTool === "wall") {
     return hasDraft

@@ -3,6 +3,7 @@ import {
   type BlueprintReference,
   type EntityId,
   type Level,
+  type ObjectInstance,
   type Opening,
   type ProjectDocument,
   type Vertex,
@@ -543,6 +544,113 @@ export class MoveBlueprintLayerCommand implements EditorCommand {
         levelId: this.input.levelId,
         blueprintId: this.input.blueprintId,
         toIndex: fromIndex,
+      }),
+    };
+  }
+}
+
+export interface AddObjectInput {
+  levelId: EntityId;
+  object: ObjectInstance;
+  index?: number;
+}
+
+export class AddObjectCommand implements EditorCommand {
+  readonly type = "AddObject";
+
+  constructor(private readonly input: AddObjectInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    if (level.objects.some((candidate) => candidate.id === this.input.object.id)) {
+      throw new Error(`Object ${this.input.object.id} already exists.`);
+    }
+
+    const index = this.input.index ?? level.objects.length;
+    if (!Number.isSafeInteger(index) || index < 0 || index > level.objects.length) {
+      throw new Error("Object insertion index is invalid.");
+    }
+
+    const objects = [...level.objects];
+    objects.splice(index, 0, this.input.object);
+    const nextDocument = replaceLevel(document, { ...level, objects });
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new RemoveObjectCommand(this.input.levelId, this.input.object.id),
+    };
+  }
+}
+
+export interface UpdateObjectInput {
+  levelId: EntityId;
+  object: ObjectInstance;
+}
+
+export class UpdateObjectCommand implements EditorCommand {
+  readonly type = "UpdateObject";
+
+  constructor(private readonly input: UpdateObjectInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    const previous = level.objects.find(
+      (candidate) => candidate.id === this.input.object.id,
+    );
+    if (!previous) throw new Error(`Object ${this.input.object.id} does not exist.`);
+    if (previous.assetId !== this.input.object.assetId) {
+      throw new Error("Object assetId is immutable. Replace the object instead.");
+    }
+
+    const nextDocument = replaceLevel(document, {
+      ...level,
+      objects: level.objects.map((candidate) =>
+        candidate.id === this.input.object.id ? this.input.object : candidate,
+      ),
+    });
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new UpdateObjectCommand({
+        levelId: this.input.levelId,
+        object: previous,
+      }),
+    };
+  }
+}
+
+export class RemoveObjectCommand implements EditorCommand {
+  readonly type = "RemoveObject";
+
+  constructor(
+    private readonly levelId: EntityId,
+    private readonly objectId: EntityId,
+  ) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.levelId);
+    const index = level.objects.findIndex(
+      (candidate) => candidate.id === this.objectId,
+    );
+    if (index < 0) throw new Error(`Object ${this.objectId} does not exist.`);
+
+    const object = level.objects[index];
+    if (!object) throw new Error(`Object ${this.objectId} does not exist.`);
+
+    const nextDocument = replaceLevel(document, {
+      ...level,
+      objects: level.objects.filter((candidate) => candidate.id !== this.objectId),
+    });
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new AddObjectCommand({
+        levelId: this.levelId,
+        object,
+        index,
       }),
     };
   }

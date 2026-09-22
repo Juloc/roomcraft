@@ -302,4 +302,56 @@ describe("project document validation", () => {
     ).toThrow("newer than supported");
   });
 
+  it("accepts a valid placed object and rejects invalid dimensions", () => {
+    const document = createEmptyProject("project_objects");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    level.objects.push({
+      id: "object_1",
+      assetId: "builtin:table",
+      xMm: 1000,
+      yMm: 2000,
+      zMm: 0,
+      rotationDeg: 45,
+      widthMm: 1600,
+      depthMm: 900,
+      heightMm: 760,
+      locked: false,
+    });
+    expect(() => validateProjectDocument(document)).not.toThrow();
+
+    level.objects[0] = {
+      ...level.objects[0]!,
+      widthMm: 0,
+    };
+    expect(() => validateProjectDocument(document)).toThrow(
+      "dimensions must be positive",
+    );
+  });
+
+  it("rejects duplicate object ids on the same level", () => {
+    const document = createEmptyProject("project_object_ids");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    const object = {
+      id: "object_same",
+      assetId: "builtin:box",
+      xMm: 0,
+      yMm: 0,
+      zMm: 0,
+      rotationDeg: 0,
+      widthMm: 800,
+      depthMm: 600,
+      heightMm: 800,
+      locked: false,
+    };
+    level.objects.push(object, { ...object, xMm: 1000 });
+
+    expect(() => validateProjectDocument(document)).toThrow(
+      "must be unique and non-empty",
+    );
+  });
+
 });

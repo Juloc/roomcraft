@@ -15,7 +15,8 @@
     "@roomcraft/render-3d": "*",
     "@roomcraft/ui": "*",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "@roomcraft/catalog": "*"
   },
   "devDependencies": {
     "@types/react": "19.3.0",
