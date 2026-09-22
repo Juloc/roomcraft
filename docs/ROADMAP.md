@@ -257,7 +257,7 @@ V1:
 - SVG floorplan generated from semantic 2D projection ✅
 - room labels / furniture footprints in SVG ✅
 - PNG/JPEG viewport ⬜
-- GLB project export ⬜
+- GLB project export from the shared 3D scene builder ✅
 
 Later:
 - portable RoomCraft bundle with referenced binary assets ⬜
