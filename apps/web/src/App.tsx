@@ -9,6 +9,7 @@ import {
   type BlueprintReference,
   type ObjectInstance,
   type Opening,
+  type ParametricCabinetDefinition,
   type ProjectDocument,
 } from "@roomcraft/document";
 import {
@@ -16,6 +17,7 @@ import {
   AddLevelCommand,
   AddObjectCommand,
   AddOpeningCommand,
+  AddParametricAssetCommand,
   AddWallCommand,
   CalibrateBlueprintCommand,
   EMPTY_SELECTION,
@@ -29,6 +31,7 @@ import {
   UpdateBlueprintCommand,
   UpdateLevelCommand,
   UpdateObjectCommand,
+  UpdateParametricAssetCommand,
   DEFAULT_PLAN_CAMERA,
   duplicateLevelShell,
   fitPlanCamera,
@@ -45,6 +48,14 @@ import {
   type PlanSnapResult,
   type ViewportSizePx,
 } from "@roomcraft/editor-core";
+import {
+  DEFAULT_CABINET_DIMENSIONS,
+  cabinetMinimumDimensions,
+  createDefaultCabinetDefinition,
+  deriveCabinetCutList,
+  parametricAssetId,
+  parseParametricAssetId,
+} from "@roomcraft/parametric";
 import { projectLevel2D } from "@roomcraft/render-2d";
 import {
   inspectGlbFile,
@@ -109,7 +120,7 @@ interface BlueprintCalibrationDraft {
 interface FurnitureDefinition {
   id: string;
   name: string;
-  source: "builtin" | "catalog";
+  source: "builtin" | "catalog" | "parametric";
   category: string;
   manufacturer: string | null;
   sku: string | null;
@@ -189,6 +200,25 @@ function catalogFurnitureDefinition(
   };
 }
 
+function parametricFurnitureDefinition(
+  definition: ParametricCabinetDefinition,
+): FurnitureDefinition {
+  return {
+    id: parametricAssetId(definition.id),
+    name: definition.name,
+    source: "parametric",
+    category: "custom cabinet",
+    manufacturer: null,
+    sku: null,
+    productUrl: null,
+    thumbnailAssetId: null,
+    modelAssetId: null,
+    defaultDimensionsMm: DEFAULT_CABINET_DIMENSIONS,
+    minimumDimensionsMm: cabinetMinimumDimensions(definition),
+    resizable: true,
+  };
+}
+
 export function App() {
   const session = useProjectSession(() =>
     createEmptyProject(getOrCreateProjectId(), "My apartment"),
@@ -221,6 +251,7 @@ export function App() {
   const modelFileRef = useRef<HTMLInputElement | null>(null);
   const [modelImportState, setModelImportState] = useState<"idle" | "importing">("idle");
   const [modelImportError, setModelImportError] = useState<string | null>(null);
+  const [parametricEditError, setParametricEditError] = useState<string | null>(null);
   const [blueprintImportState, setBlueprintImportState] = useState<"idle" | "uploading">("idle");
   const [blueprintImportError, setBlueprintImportError] = useState<string | null>(null);
   const [calibrationDraft, setCalibrationDraft] = useState<BlueprintCalibrationDraft | null>(null);
@@ -351,6 +382,22 @@ export function App() {
   const selectedObjectDefinition = selectedObject
     ? resolveFurnitureDefinition(selectedObject.assetId)
     : null;
+  const selectedParametricDefinitionId = selectedObject
+    ? parseParametricAssetId(selectedObject.assetId)
+    : null;
+  const selectedParametricDefinition = selectedParametricDefinitionId
+    ? document.parametricAssets.find(
+        (definition) => definition.id === selectedParametricDefinitionId,
+      ) ?? null
+    : null;
+  const selectedCabinetCutList =
+    selectedObject && selectedParametricDefinition
+      ? deriveCabinetCutList(selectedParametricDefinition, {
+          widthMm: selectedObject.widthMm,
+          depthMm: selectedObject.depthMm,
+          heightMm: selectedObject.heightMm,
+        })
+      : [];
   const activeFurnitureDefinition =
     resolveFurnitureDefinition(activeFurnitureAssetId) ??
     BUILTIN_FURNITURE[0] ??
@@ -369,6 +416,10 @@ export function App() {
     ...Object.values(catalogDefinitions).map(
       (definition) => [definition.id, definition.name] as const,
     ),
+    ...document.parametricAssets.map(
+      (definition) =>
+        [parametricAssetId(definition.id), definition.name] as const,
+    ),
   ]);
 
   function resolveFurnitureDefinition(
@@ -380,6 +431,14 @@ export function App() {
         BUILTIN_FURNITURE.find((candidate) => candidate.id === builtin.id) ??
         null
       );
+    }
+
+    const parametricDefinitionId = parseParametricAssetId(assetId);
+    if (parametricDefinitionId) {
+      const definition = document.parametricAssets.find(
+        (candidate) => candidate.id === parametricDefinitionId,
+      );
+      return definition ? parametricFurnitureDefinition(definition) : null;
     }
 
     return catalogDefinitions[assetId] ?? null;
@@ -461,6 +520,39 @@ export function App() {
       );
     } finally {
       catalogLoadingRef.current.delete(assetId);
+    }
+  }
+
+  function createParametricCabinet() {
+    const definition = createDefaultCabinetDefinition(
+      createEntityId("cabinet"),
+      `Custom cabinet ${document.parametricAssets.length + 1}`,
+    );
+    session.execute(new AddParametricAssetCommand({ definition }));
+    setActiveFurnitureAssetId(parametricAssetId(definition.id));
+    setActiveTool("furniture");
+    setViewMode("2d");
+    setParametricEditError(null);
+  }
+
+  function updateSelectedParametricDefinition(
+    changes: Partial<ParametricCabinetDefinition>,
+  ) {
+    if (!selectedParametricDefinition) return;
+
+    try {
+      session.execute(
+        new UpdateParametricAssetCommand({
+          definition: { ...selectedParametricDefinition, ...changes },
+        }),
+      );
+      setParametricEditError(null);
+    } catch (error) {
+      setParametricEditError(
+        error instanceof Error
+          ? error.message
+          : "Cabinet construction could not be changed.",
+      );
     }
   }
 
@@ -1484,6 +1576,44 @@ export function App() {
 
                   <div className="furniture-palette__section">
                     <strong className="furniture-palette__section-title">
+                      Custom furniture
+                    </strong>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={createParametricCabinet}
+                    >
+                      New cabinet
+                    </Button>
+                    {document.parametricAssets.length > 0 ? (
+                      <div className="furniture-palette__grid">
+                        {document.parametricAssets.map((definition) => {
+                          const assetId = parametricAssetId(definition.id);
+                          return (
+                            <Button
+                              key={definition.id}
+                              type="button"
+                              variant={
+                                assetId === activeFurnitureAssetId
+                                  ? "primary"
+                                  : "secondary"
+                              }
+                              onClick={() => setActiveFurnitureAssetId(assetId)}
+                            >
+                              {definition.name}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <span className="property-hint">
+                      Cabinets stay parametric: resize the placed object and
+                      change shelves, fronts and construction later.
+                    </span>
+                  </div>
+
+                  <div className="furniture-palette__section">
+                    <strong className="furniture-palette__section-title">
                       My 3D models
                     </strong>
                     <Button
@@ -1955,6 +2085,147 @@ export function App() {
                       Loading the saved catalog version…
                     </span>
                   ) : null}
+
+                  {selectedParametricDefinition ? (
+                    <div className="cabinet-builder">
+                      <strong>Cabinet construction</strong>
+                      <SelectField
+                        label="Front"
+                        value={selectedParametricDefinition.frontStyle}
+                        options={[
+                          { value: "open", label: "Open" },
+                          { value: "single-door", label: "Single door" },
+                          { value: "double-door", label: "Double door" },
+                        ]}
+                        disabled={selectedObject.locked}
+                        onChange={(value) =>
+                          updateSelectedParametricDefinition({
+                            frontStyle: value as ParametricCabinetDefinition["frontStyle"],
+                          })
+                        }
+                      />
+                      <SelectField
+                        label="Material"
+                        value={selectedParametricDefinition.materialId ?? ""}
+                        options={materialOptions}
+                        disabled={selectedObject.locked}
+                        onChange={(value) =>
+                          updateSelectedParametricDefinition({
+                            materialId: value || null,
+                          })
+                        }
+                      />
+                      <LengthField
+                        label="Panel thickness"
+                        valueMm={selectedParametricDefinition.panelThicknessMm}
+                        minMm={1}
+                        disabled={selectedObject.locked}
+                        onCommit={(valueMm) =>
+                          updateSelectedParametricDefinition({
+                            panelThicknessMm: valueMm,
+                          })
+                        }
+                      />
+                      <LengthField
+                        label="Back thickness"
+                        valueMm={selectedParametricDefinition.backThicknessMm}
+                        minMm={1}
+                        disabled={selectedObject.locked}
+                        onCommit={(valueMm) =>
+                          updateSelectedParametricDefinition({
+                            backThicknessMm: valueMm,
+                          })
+                        }
+                      />
+                      <LengthField
+                        label="Shelf thickness"
+                        valueMm={selectedParametricDefinition.shelfThicknessMm}
+                        minMm={1}
+                        disabled={selectedObject.locked}
+                        onCommit={(valueMm) =>
+                          updateSelectedParametricDefinition({
+                            shelfThicknessMm: valueMm,
+                          })
+                        }
+                      />
+                      <NumberField
+                        label="Shelves"
+                        value={selectedParametricDefinition.shelfCount}
+                        min={0}
+                        step={1}
+                        disabled={selectedObject.locked}
+                        onCommit={(value) =>
+                          updateSelectedParametricDefinition({
+                            shelfCount: Math.max(
+                              0,
+                              Math.min(64, Math.round(value)),
+                            ),
+                          })
+                        }
+                      />
+                      <LengthField
+                        label="Front thickness"
+                        valueMm={selectedParametricDefinition.frontThicknessMm}
+                        minMm={1}
+                        disabled={selectedObject.locked}
+                        onCommit={(valueMm) =>
+                          updateSelectedParametricDefinition({
+                            frontThicknessMm: valueMm,
+                          })
+                        }
+                      />
+                      <NumberField
+                        label="Plinth height"
+                        value={selectedParametricDefinition.plinthHeightMm}
+                        min={0}
+                        step={1}
+                        suffix="mm"
+                        disabled={selectedObject.locked}
+                        onCommit={(value) =>
+                          updateSelectedParametricDefinition({
+                            plinthHeightMm: Math.max(0, Math.round(value)),
+                          })
+                        }
+                      />
+                      <NumberField
+                        label="Worktop thickness"
+                        value={selectedParametricDefinition.worktopThicknessMm}
+                        min={0}
+                        step={1}
+                        suffix="mm"
+                        disabled={selectedObject.locked}
+                        onCommit={(value) =>
+                          updateSelectedParametricDefinition({
+                            worktopThicknessMm: Math.max(0, Math.round(value)),
+                          })
+                        }
+                      />
+                      {parametricEditError ? (
+                        <div className="inline-error" role="alert">
+                          {parametricEditError}
+                        </div>
+                      ) : null}
+                      <div className="cabinet-cut-list">
+                        <strong>Cut list</strong>
+                        {selectedCabinetCutList.map((item, index) => (
+                          <div
+                            className="cabinet-cut-list__row"
+                            key={`${item.label}:${item.lengthMm}:${item.widthMm}:${item.thicknessMm}:${index}`}
+                          >
+                            <span>
+                              {item.quantity} × {item.label}
+                            </span>
+                            <span>
+                              {Math.round(item.lengthMm)} ×{" "}
+                              {Math.round(item.widthMm)} ×{" "}
+                              {Math.round(item.thicknessMm)} mm
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
                   <NumberField
                     label="X"
                     value={selectedObject.xMm}
