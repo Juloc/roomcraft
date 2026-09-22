@@ -5,11 +5,25 @@ import {
   type ProjectDocument,
 } from "@roomcraft/document";
 import { projectLevel2D } from "@roomcraft/render-2d";
+import {
+  buildRoomSceneGraph,
+  disposeModelResources,
+  loadGlbPrototype,
+  type RuntimeModelAsset,
+} from "@roomcraft/render-3d";
+import type { Group } from "three";
+import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 
 export interface SvgFloorPlanOptions {
   paddingMm?: number;
   includeFurniture?: boolean;
   includeRoomLabels?: boolean;
+}
+
+export interface GlbProjectExportOptions {
+  activeLevelId?: EntityId;
+  modelAssets?: readonly RuntimeModelAsset[];
+  showCeilings?: boolean;
 }
 
 export function serializeRoomCraftDocument(document: ProjectDocument): string {
@@ -29,6 +43,70 @@ export function parseRoomCraftDocumentFile(source: string): ProjectDocument {
 
 export function roomCraftFileName(document: ProjectDocument): string {
   return `${safeFileStem(document.name || "roomcraft-project")}.roomcraft`;
+}
+
+export function glbProjectFileName(document: ProjectDocument): string {
+  return `${safeFileStem(document.name || "roomcraft-project")}.glb`;
+}
+
+export async function exportProjectGlb(
+  document: ProjectDocument,
+  options: GlbProjectExportOptions = {},
+): Promise<ArrayBuffer> {
+  validateProjectDocument(document);
+
+  const activeLevelId =
+    options.activeLevelId ?? document.levels[0]?.id;
+  if (!activeLevelId) {
+    throw new Error("Project must contain at least one level.");
+  }
+
+  const prototypes = new Map<string, Promise<Group>>();
+  const resolvedPrototypes = new Map<string, Group>();
+
+  const loadPrototype = (contentUrl: string): Promise<Group> => {
+    const existing = prototypes.get(contentUrl);
+    if (existing) return existing;
+
+    const pending = loadGlbPrototype(contentUrl).then((prototype) => {
+      resolvedPrototypes.set(contentUrl, prototype);
+      return prototype;
+    });
+    prototypes.set(contentUrl, pending);
+    return pending;
+  };
+
+  const build = buildRoomSceneGraph(document, activeLevelId, {
+    levelScope: "all",
+    ...(options.modelAssets ? { modelAssets: options.modelAssets } : {}),
+    showCeilings: options.showCeilings ?? true,
+    externalModelFailure: "reject",
+    loadModelPrototype: loadPrototype,
+  });
+
+  try {
+    await Promise.all(build.pending);
+
+    const exporter = new GLTFExporter();
+    const result = await exporter.parseAsync(build.group, {
+      binary: true,
+      onlyVisible: true,
+      trs: false,
+    });
+
+    if (!(result instanceof ArrayBuffer)) {
+      throw new Error("GLB exporter returned a non-binary result.");
+    }
+
+    return result;
+  } finally {
+    build.dispose();
+    for (const prototype of resolvedPrototypes.values()) {
+      disposeModelResources(prototype);
+    }
+    resolvedPrototypes.clear();
+    prototypes.clear();
+  }
 }
 
 export function svgFloorPlanFileName(

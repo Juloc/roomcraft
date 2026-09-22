@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@roomcraft/document": "*",
-    "@roomcraft/render-2d": "*"
+    "@roomcraft/render-2d": "*",
+    "@roomcraft/render-3d": "*",
+    "three": "0.186.0"
   },
   "devDependencies": {
     "typescript": "7.0.2",
