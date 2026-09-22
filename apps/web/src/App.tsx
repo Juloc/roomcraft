@@ -947,7 +947,7 @@ function PlanCanvas({
   }
 
   function beginBlueprintDrag(
-    event: ReactPointerEvent<SVGImageElement>,
+    event: ReactPointerEvent<SVGElement>,
     blueprint: ReturnType<typeof projectLevel2D>["blueprints"][number],
   ) {
     if (activeTool !== "select" || event.button !== 0) return;
@@ -1162,12 +1162,7 @@ function PlanCanvas({
                   overflow="hidden"
                   opacity={blueprint.opacity}
                   className={`plan-blueprint${blueprint.locked ? " plan-blueprint--locked" : ""}`}
-                  onPointerDown={(event) =>
-                    beginBlueprintDrag(
-                      event as unknown as ReactPointerEvent<SVGImageElement>,
-                      blueprint,
-                    )
-                  }
+                  onPointerDown={(event) => beginBlueprintDrag(event, blueprint)}
                 >
                   <image
                     href={assetContentUrl(blueprint.assetId)}
