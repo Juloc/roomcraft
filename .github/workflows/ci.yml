@@ -58,5 +58,7 @@ jobs:
         run: bash scripts/smoke-project-persistence.sh
       - name: Blueprint asset smoke test
         run: bash scripts/smoke-blueprint-assets.sh
+      - name: GLB model asset smoke test
+        run: bash scripts/smoke-model-assets.sh
       - name: Catalog smoke test
         run: bash scripts/smoke-catalog.sh
