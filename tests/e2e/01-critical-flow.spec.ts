@@ -84,7 +84,7 @@ test("builds, persists, reloads and exports a planned room", async ({ page }) =>
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Choose a project" })).toBeVisible();
-  await page.getByRole("button", { name: PROJECT_NAME }).click();
+  await page.getByRole("button").filter({ hasText: PROJECT_NAME }).click();
 
   await expect(page.locator(".save-state:visible")).toHaveText("Saved");
   await expect(statValue(page, "Rooms")).toHaveText("1");
