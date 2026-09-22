@@ -320,7 +320,7 @@ public static class AssetsModule
             return null;
         }
 
-        var jsonBytes = new byte[jsonLength];
+        var jsonBytes = new byte[checked((int)jsonLength)];
         if (await ReadAtMostAsync(stream, jsonBytes, cancellationToken) != jsonBytes.Length)
         {
             return null;
