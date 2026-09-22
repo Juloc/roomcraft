@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -10,6 +12,9 @@ namespace RoomCraft.Modules.Assets;
 public static class AssetsModule
 {
     private const long DefaultMaxBlueprintBytes = 25 * 1024 * 1024;
+    private const long DefaultMaxModelBytes = 100 * 1024 * 1024;
+    private const int MaxGlbJsonChunkBytes = 4 * 1024 * 1024;
+    private const uint GlbJsonChunkType = 0x4E4F534A;
 
     public static IServiceCollection AddAssetsModule(
         this IServiceCollection services,
@@ -33,13 +38,19 @@ public static class AssetsModule
 
         var maxBlueprintBytes =
             configuration.GetValue<long?>("Assets:MaxBlueprintBytes") ?? DefaultMaxBlueprintBytes;
+        var maxModelBytes =
+            configuration.GetValue<long?>("Assets:MaxModelBytes") ?? DefaultMaxModelBytes;
         if (maxBlueprintBytes <= 0)
         {
             throw new InvalidOperationException("Assets:MaxBlueprintBytes must be positive.");
         }
+        if (maxModelBytes <= 0)
+        {
+            throw new InvalidOperationException("Assets:MaxModelBytes must be positive.");
+        }
 
         services.AddSingleton<IAssetBlobStore>(new LocalAssetBlobStore(storagePath));
-        services.AddSingleton(new AssetUploadOptions(maxBlueprintBytes));
+        services.AddSingleton(new AssetUploadOptions(maxBlueprintBytes, maxModelBytes));
         return services;
     }
 
@@ -56,16 +67,55 @@ public static class AssetsModule
     {
         var group = endpoints.MapGroup("/api/assets");
         group.MapPost("/blueprints", UploadBlueprintAsync).DisableAntiforgery();
+        group.MapPost("/models", UploadModelAsync).DisableAntiforgery();
         group.MapGet("/{assetId}", GetAssetAsync);
         group.MapGet("/{assetId}/content", GetAssetContentAsync);
         return endpoints;
     }
 
-    private static async Task<IResult> UploadBlueprintAsync(
+    private static Task<IResult> UploadBlueprintAsync(
         HttpRequest request,
         AssetsDbContext db,
         IAssetBlobStore blobStore,
         AssetUploadOptions options,
+        CancellationToken cancellationToken) =>
+        UploadAssetAsync(
+            request,
+            db,
+            blobStore,
+            kind: "blueprint",
+            idPrefix: "asset_bp_",
+            maxBytes: options.MaxBlueprintBytes,
+            validateAsync: DetectImageContentTypeAsync,
+            invalidMessage: "Blueprint must be a PNG, JPEG or WebP image.",
+            cancellationToken);
+
+    private static Task<IResult> UploadModelAsync(
+        HttpRequest request,
+        AssetsDbContext db,
+        IAssetBlobStore blobStore,
+        AssetUploadOptions options,
+        CancellationToken cancellationToken) =>
+        UploadAssetAsync(
+            request,
+            db,
+            blobStore,
+            kind: "model",
+            idPrefix: "asset_glb_",
+            maxBytes: options.MaxModelBytes,
+            validateAsync: DetectGlbContentTypeAsync,
+            invalidMessage: "Model must be a valid glTF 2.0 binary (.glb) file.",
+            cancellationToken);
+
+    private static async Task<IResult> UploadAssetAsync(
+        HttpRequest request,
+        AssetsDbContext db,
+        IAssetBlobStore blobStore,
+        string kind,
+        string idPrefix,
+        long maxBytes,
+        Func<IFormFile, CancellationToken, Task<string?>> validateAsync,
+        string invalidMessage,
         CancellationToken cancellationToken)
     {
         if (!request.HasFormContentType)
@@ -80,25 +130,22 @@ public static class AssetsModule
             return Results.BadRequest(new { error = "A non-empty file field is required." });
         }
 
-        if (file.Length > options.MaxBlueprintBytes)
+        if (file.Length > maxBytes)
         {
             return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
         }
 
-        var contentType = await DetectImageContentTypeAsync(file, cancellationToken);
+        var contentType = await validateAsync(file, cancellationToken);
         if (contentType is null)
         {
-            return Results.BadRequest(new { error = "Blueprint must be a PNG, JPEG or WebP image." });
+            return Results.BadRequest(new { error = invalidMessage });
         }
 
         StoredBlob stored;
         try
         {
             await using var source = file.OpenReadStream();
-            stored = await blobStore.StoreAsync(
-                source,
-                options.MaxBlueprintBytes,
-                cancellationToken);
+            stored = await blobStore.StoreAsync(source, maxBytes, cancellationToken);
         }
         catch (AssetTooLargeException)
         {
@@ -108,18 +155,18 @@ public static class AssetsModule
         var existing = await db.Assets
             .AsNoTracking()
             .SingleOrDefaultAsync(
-                item => item.Kind == "blueprint" && item.Sha256 == stored.Sha256,
+                item => item.Kind == kind && item.Sha256 == stored.Sha256,
                 cancellationToken);
         if (existing is not null) return Results.Ok(ToResponse(existing));
 
         var originalFileName = Path.GetFileName(file.FileName);
-        if (string.IsNullOrWhiteSpace(originalFileName)) originalFileName = "blueprint";
+        if (string.IsNullOrWhiteSpace(originalFileName)) originalFileName = kind;
         if (originalFileName.Length > 512) originalFileName = originalFileName[..512];
 
         var asset = new AssetRecord
         {
-            Id = $"asset_bp_{stored.Sha256[..32]}",
-            Kind = "blueprint",
+            Id = $"{idPrefix}{stored.Sha256[..32]}",
+            Kind = kind,
             ContentType = contentType,
             OriginalFileName = originalFileName,
             SizeBytes = stored.SizeBytes,
@@ -139,7 +186,7 @@ public static class AssetsModule
             existing = await db.Assets
                 .AsNoTracking()
                 .SingleOrDefaultAsync(
-                    item => item.Kind == "blueprint" && item.Sha256 == stored.Sha256,
+                    item => item.Kind == kind && item.Sha256 == stored.Sha256,
                     cancellationToken);
             if (existing is not null) return Results.Ok(ToResponse(existing));
             throw;
@@ -196,15 +243,7 @@ public static class AssetsModule
     {
         var header = new byte[12];
         await using var stream = file.OpenReadStream();
-        var read = 0;
-        while (read < header.Length)
-        {
-            var count = await stream.ReadAsync(
-                header.AsMemory(read, header.Length - read),
-                cancellationToken);
-            if (count == 0) break;
-            read += count;
-        }
+        var read = await ReadAtMostAsync(stream, header, cancellationToken);
 
         if (read >= 8 &&
             header[0] == 0x89 &&
@@ -240,7 +279,92 @@ public static class AssetsModule
         return null;
     }
 
-    private sealed record AssetUploadOptions(long MaxBlueprintBytes);
+    private static async Task<string?> DetectGlbContentTypeAsync(
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        if (file.Length < 20 || file.Length > uint.MaxValue) return null;
+
+        await using var stream = file.OpenReadStream();
+        var header = new byte[12];
+        if (await ReadAtMostAsync(stream, header, cancellationToken) != header.Length)
+        {
+            return null;
+        }
+
+        if (header[0] != (byte)'g' ||
+            header[1] != (byte)'l' ||
+            header[2] != (byte)'T' ||
+            header[3] != (byte)'F')
+        {
+            return null;
+        }
+
+        var version = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4, 4));
+        var declaredLength = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(8, 4));
+        if (version != 2 || declaredLength != file.Length) return null;
+
+        var chunkHeader = new byte[8];
+        if (await ReadAtMostAsync(stream, chunkHeader, cancellationToken) != chunkHeader.Length)
+        {
+            return null;
+        }
+
+        var jsonLength = BinaryPrimitives.ReadUInt32LittleEndian(chunkHeader.AsSpan(0, 4));
+        var chunkType = BinaryPrimitives.ReadUInt32LittleEndian(chunkHeader.AsSpan(4, 4));
+        if (chunkType != GlbJsonChunkType ||
+            jsonLength == 0 ||
+            jsonLength > MaxGlbJsonChunkBytes ||
+            20L + jsonLength > file.Length)
+        {
+            return null;
+        }
+
+        var jsonBytes = new byte[jsonLength];
+        if (await ReadAtMostAsync(stream, jsonBytes, cancellationToken) != jsonBytes.Length)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var json = JsonDocument.Parse(jsonBytes);
+            if (!json.RootElement.TryGetProperty("asset", out var asset) ||
+                !asset.TryGetProperty("version", out var assetVersion) ||
+                assetVersion.ValueKind != JsonValueKind.String ||
+                assetVersion.GetString() is not { } value ||
+                !value.StartsWith("2.", StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return "model/gltf-binary";
+    }
+
+    private static async Task<int> ReadAtMostAsync(
+        Stream stream,
+        Memory<byte> buffer,
+        CancellationToken cancellationToken)
+    {
+        var total = 0;
+        while (total < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer[total..], cancellationToken);
+            if (read == 0) break;
+            total += read;
+        }
+
+        return total;
+    }
+
+    private sealed record AssetUploadOptions(
+        long MaxBlueprintBytes,
+        long MaxModelBytes);
 }
 
 public sealed record AssetResponse(
