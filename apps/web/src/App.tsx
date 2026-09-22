@@ -108,6 +108,7 @@ import {
   type CatalogItemSummaryDto,
   type CatalogVersionDto,
 } from "./catalog-api";
+import { createEntityId } from "./random-id";
 import { useProjectSession, type SaveState } from "./use-project-session";
 
 type ViewMode = "2d" | "3d";
@@ -3520,6 +3521,3 @@ function getOrCreateProjectId(): string {
   return id;
 }
 
-function createEntityId(prefix: string): string {
-  return `${prefix}_${crypto.randomUUID()}`;
-}
