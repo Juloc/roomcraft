@@ -164,17 +164,18 @@ Goal: support real multi-storey homes/apartments.
 
 ---
 
-## Phase 5 — Materials and surfaces ⬜
+## Phase 5 — Materials and surfaces 🚧
 
 Goal: make the shell visually useful without coupling materials to meshes.
 
-- material definition/asset abstraction
-- wall left/right surfaces
-- room floor material
-- ceiling material
-- basic colors first
-- texture scale/orientation
-- synchronized 2D hints + 3D PBR rendering
+- project-level semantic material definitions ✅
+- basic PBR color / roughness / metalness ✅
+- wall left/right surfaces ✅
+- derived room floor material ✅
+- derived room ceiling material ✅
+- undoable material assignments ✅
+- synchronized 2D hints + 3D PBR rendering ✅
+- texture assets / scale / orientation ⬜
 
 Definition of done:
 - changing a semantic surface material changes every relevant renderer/export without storing mesh-specific material state
