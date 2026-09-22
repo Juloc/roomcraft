@@ -56,3 +56,7 @@ export function Toolbar({ children }: PropsWithChildren) {
 export { LengthField } from "./LengthField";
 export type { LengthFieldProps } from "./LengthField";
 export { formatLengthInput, parseLengthInput } from "./length";
+
+export { NumberField } from "./NumberField";
+export type { NumberFieldProps } from "./NumberField";
+export { formatNumberInput, parseNumberInput } from "./number";
