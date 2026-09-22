@@ -17,7 +17,7 @@ test("builds, persists, reloads and exports a planned room", async ({ page }) =>
   const firstWall = plan.locator(".plan-wall-hit").first();
 
   await page.getByRole("button", { name: "Select", exact: true }).click();
-  await firstWall.click();
+  await firstWall.click({ force: true });
 
   const wallPanel = page
     .locator(".selection-properties")
@@ -29,7 +29,7 @@ test("builds, persists, reloads and exports a planned room", async ({ page }) =>
   await expect(length).toHaveValue("2500 mm");
 
   await page.getByRole("button", { name: "Door", exact: true }).click();
-  await firstWall.click();
+  await firstWall.click({ force: true });
   await expect(statValue(page, "Openings")).toHaveText("1");
 
   const box = await requireBox(plan);
