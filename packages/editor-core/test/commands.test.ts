@@ -1,6 +1,6 @@
 import { createEmptyProject } from "@roomcraft/document";
 import { describe, expect, it } from "vitest";
-import { AddBlueprintCommand, AddLevelCommand, AddObjectCommand, AddOpeningCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, MoveBlueprintLayerCommand, RemoveBlueprintCommand, RemoveLevelCommand, RemoveObjectCommand, SetWallLengthCommand, UpdateLevelCommand, UpdateObjectCommand } from "../src";
+import { AddBlueprintCommand, AddLevelCommand, AddObjectCommand, AddOpeningCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, MoveBlueprintLayerCommand, RemoveBlueprintCommand, RemoveLevelCommand, RemoveObjectCommand, SetRoomSurfaceMaterialsCommand, SetWallLengthCommand, SetWallMaterialsCommand, UpdateLevelCommand, UpdateObjectCommand } from "../src";
 
 describe("CommandHistory", () => {
   it("adds a wall through a command and restores it through undo/redo", () => {
@@ -471,6 +471,7 @@ describe("CommandHistory", () => {
           openings: [],
           objects: [],
           blueprints: [],
+          roomFinishes: [],
         },
       }),
     );
@@ -525,6 +526,77 @@ describe("CommandHistory", () => {
     expect(() =>
       history.execute(new RemoveLevelCommand("level_ground")),
     ).toThrow("keep at least one level");
+  });
+
+  it("assigns wall side materials and restores them through undo", () => {
+    const history = new CommandHistory(createEmptyProject("project_material_wall"));
+    history.execute(
+      new AddWallCommand({
+        levelId: "level_ground",
+        wallId: "wall_1",
+        start: { kind: "new", vertex: { id: "vertex_1", xMm: 0, yMm: 0 } },
+        end: { kind: "new", vertex: { id: "vertex_2", xMm: 4000, yMm: 0 } },
+        thicknessMm: 120,
+      }),
+    );
+
+    history.execute(
+      new SetWallMaterialsCommand({
+        levelId: "level_ground",
+        wallId: "wall_1",
+        leftMaterialId: "material:beige",
+        rightMaterialId: "material:white",
+      }),
+    );
+
+    expect(history.document.levels[0]?.walls[0]).toMatchObject({
+      leftMaterialId: "material:beige",
+      rightMaterialId: "material:white",
+    });
+
+    history.undo();
+    expect(history.document.levels[0]?.walls[0]).toMatchObject({
+      leftMaterialId: null,
+      rightMaterialId: null,
+    });
+  });
+
+  it("assigns room floor and ceiling materials without persisting room geometry", () => {
+    const history = new CommandHistory(createEmptyProject("project_material_room"));
+
+    history.execute(
+      new SetRoomSurfaceMaterialsCommand({
+        levelId: "level_ground",
+        roomKey: "room:a|b|c|d",
+        floorMaterialId: "material:oak",
+        ceilingMaterialId: "material:white",
+      }),
+    );
+
+    expect(history.document.levels[0]?.roomFinishes).toEqual([
+      {
+        roomKey: "room:a|b|c|d",
+        floorMaterialId: "material:oak",
+        ceilingMaterialId: "material:white",
+      },
+    ]);
+
+    history.undo();
+    expect(history.document.levels[0]?.roomFinishes).toEqual([]);
+  });
+
+  it("rejects surface assignments to unknown materials", () => {
+    const history = new CommandHistory(createEmptyProject("project_material_invalid"));
+
+    expect(() =>
+      history.execute(
+        new SetRoomSurfaceMaterialsCommand({
+          levelId: "level_ground",
+          roomKey: "room:test",
+          floorMaterialId: "material:missing",
+        }),
+      ),
+    ).toThrow("references missing material");
   });
 
 });
