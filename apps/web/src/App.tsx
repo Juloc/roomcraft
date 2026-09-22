@@ -147,6 +147,31 @@ const OPENING_PRESETS = {
 
 const CURRENT_PROJECT_KEY = "roomcraft.currentProjectId";
 
+function catalogFurnitureDefinition(
+  item: CatalogItemSummaryDto,
+  version: CatalogVersionDto = item.version,
+): FurnitureDefinition {
+  const dimensions = {
+    widthMm: version.widthMm,
+    depthMm: version.depthMm,
+    heightMm: version.heightMm,
+  };
+
+  return {
+    id: catalogVersionAssetId(item.id, version.version),
+    name: item.name,
+    source: "catalog",
+    category: item.category,
+    manufacturer: item.manufacturer,
+    sku: item.sku,
+    productUrl: item.productUrl,
+    thumbnailAssetId: version.thumbnailAssetId,
+    defaultDimensionsMm: dimensions,
+    minimumDimensionsMm: dimensions,
+    resizable: false,
+  };
+}
+
 export function App() {
   const session = useProjectSession(() =>
     createEmptyProject(getOrCreateProjectId(), "My apartment"),
@@ -278,6 +303,38 @@ export function App() {
     }
 
     return catalogDefinitions[assetId] ?? null;
+  }
+
+  async function runCatalogSearch(query = catalogQuery) {
+    const requestId = ++catalogRequestRef.current;
+    setCatalogSearchState("loading");
+    setCatalogSearchError(null);
+
+    try {
+      const response = await searchCatalogItems({
+        query,
+        limit: 24,
+      });
+      if (requestId !== catalogRequestRef.current) return;
+
+      const definitions = response.items.map((item) =>
+        catalogFurnitureDefinition(item),
+      );
+      setCatalogResults(definitions);
+      setCatalogResultTotal(response.total);
+      setCatalogDefinitions((current) => {
+        const next = { ...current };
+        for (const definition of definitions) next[definition.id] = definition;
+        return next;
+      });
+      setCatalogSearchState("ready");
+    } catch (error) {
+      if (requestId !== catalogRequestRef.current) return;
+      setCatalogSearchState("error");
+      setCatalogSearchError(
+        error instanceof Error ? error.message : "Catalog search failed.",
+      );
+    }
   }
 
   function currentLevel() {
@@ -446,12 +503,11 @@ export function App() {
     }
 
     if (activeTool === "furniture") {
-      const definition = getBuiltinAssetDefinition(activeFurnitureAssetId);
       setHoverSnap(
-        definition
+        activeFurnitureDefinition
           ? snapFurniturePosition(point, {
-              widthMm: definition.defaultDimensionsMm.widthMm,
-              depthMm: definition.defaultDimensionsMm.depthMm,
+              widthMm: activeFurnitureDefinition.defaultDimensionsMm.widthMm,
+              depthMm: activeFurnitureDefinition.defaultDimensionsMm.depthMm,
               rotationDeg: 0,
             })
           : null,
@@ -548,7 +604,7 @@ export function App() {
   }
 
   function handleFurniturePoint(point: PlanPoint) {
-    const definition = getBuiltinAssetDefinition(activeFurnitureAssetId);
+    const definition = activeFurnitureDefinition;
     if (!definition) return;
 
     const snapped = snapFurniturePosition(point, {
@@ -837,6 +893,13 @@ export function App() {
     setViewMode("2d");
   }
 
+  function openFurnitureTool() {
+    selectTool("furniture");
+    if (catalogSearchState === "idle") {
+      void runCatalogSearch("");
+    }
+  }
+
   function selectWall(wallId: string) {
     setSelection(selectOnly({ kind: "wall", id: wallId }));
   }
@@ -966,8 +1029,8 @@ export function App() {
           />
           <Button
             variant={activeTool === "furniture" ? "primary" : "ghost"}
-            onClick={() => selectTool("furniture")}
-            title="Place generic furniture with exact dimensions"
+            onClick={openFurnitureTool}
+            title="Place built-in or catalog furniture with exact dimensions"
           >
             Furniture
           </Button>
