@@ -259,7 +259,7 @@ public static class ProjectsModule
         new(project.Id, project.Name, project.CurrentRevision, project.UpdatedUtc);
 
     private static string? GetUserId(ClaimsPrincipal principal) =>
-        principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
     private static ProjectDocumentMetadata ReadMetadata(JsonElement document)
     {
