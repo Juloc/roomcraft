@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-install -d -o postgres -g postgres "$PGDATA" /data/assets
+install -d -m 0755 -o postgres -g postgres /data/assets
+install -d -m 0700 -o postgres -g postgres "$PGDATA"
 
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
     gosu postgres initdb -D "$PGDATA" --auth-local=trust --auth-host=trust
