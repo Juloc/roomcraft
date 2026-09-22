@@ -5,6 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="../RoomCraft.SharedKernel/RoomCraft.SharedKernel.csproj" />
     <ProjectReference Include="../Modules/Projects/RoomCraft.Modules.Projects.csproj" />
+    <ProjectReference Include="../Modules/Identity/RoomCraft.Modules.Identity.csproj" />
     <ProjectReference Include="../Modules/Assets/RoomCraft.Modules.Assets.csproj" />
     <ProjectReference Include="../Modules/Catalog/RoomCraft.Modules.Catalog.csproj" />
   </ItemGroup>
