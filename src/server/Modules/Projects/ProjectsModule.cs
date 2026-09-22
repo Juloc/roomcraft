@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace RoomCraft.Modules.Projects;
 
@@ -84,7 +85,22 @@ public static class ProjectsModule
 
         db.Projects.Add(project);
         db.ProjectRevisions.Add(revision);
-        await db.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+            when (exception.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.UniqueViolation
+            })
+        {
+            // A concurrent create can pass the existence check before either
+            // request commits. Treat the database uniqueness constraint as the
+            // authoritative race arbiter instead of leaking a 500.
+            return Results.Conflict(new { error = "Project already exists." });
+        }
 
         return Results.Created($"/api/projects/{project.Id}", ToResponse(project, revision));
     }
