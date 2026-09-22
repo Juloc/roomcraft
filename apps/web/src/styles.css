@@ -164,6 +164,18 @@ body {
 .plan-room__fill {
   fill: var(--rc-accent);
   opacity: 0.08;
+  cursor: pointer;
+}
+
+.plan-room__fill--selected {
+  stroke: var(--rc-accent);
+  stroke-width: 22;
+  stroke-linejoin: round;
+}
+
+.plan-wall-material-edge {
+  stroke-linecap: square;
+  opacity: 0.95;
 }
 
 .plan-room__label {
