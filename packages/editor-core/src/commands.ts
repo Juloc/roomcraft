@@ -68,6 +68,108 @@ export class CommandHistory {
   }
 }
 
+export interface AddLevelInput {
+  level: Level;
+  index?: number;
+}
+
+export class AddLevelCommand implements EditorCommand {
+  readonly type = "AddLevel";
+
+  constructor(private readonly input: AddLevelInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    if (document.levels.some((level) => level.id === this.input.level.id)) {
+      throw new Error(`Level ${this.input.level.id} already exists.`);
+    }
+
+    const index = this.input.index ?? document.levels.length;
+    if (!Number.isSafeInteger(index) || index < 0 || index > document.levels.length) {
+      throw new Error("Level insertion index is invalid.");
+    }
+
+    const levels = [...document.levels];
+    levels.splice(index, 0, this.input.level);
+    const nextDocument = { ...document, levels };
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new RemoveLevelCommand(this.input.level.id),
+    };
+  }
+}
+
+export interface UpdateLevelInput {
+  levelId: EntityId;
+  name?: string;
+  elevationMm?: number;
+  defaultWallHeightMm?: number;
+  floorThicknessMm?: number;
+}
+
+export class UpdateLevelCommand implements EditorCommand {
+  readonly type = "UpdateLevel";
+
+  constructor(private readonly input: UpdateLevelInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const level = getLevel(document, this.input.levelId);
+    const previous: UpdateLevelInput = {
+      levelId: level.id,
+      name: level.name,
+      elevationMm: level.elevationMm,
+      defaultWallHeightMm: level.defaultWallHeightMm,
+      floorThicknessMm: level.floorThicknessMm,
+    };
+
+    const nextLevel: Level = {
+      ...level,
+      name: this.input.name ?? level.name,
+      elevationMm: this.input.elevationMm ?? level.elevationMm,
+      defaultWallHeightMm:
+        this.input.defaultWallHeightMm ?? level.defaultWallHeightMm,
+      floorThicknessMm:
+        this.input.floorThicknessMm ?? level.floorThicknessMm,
+    };
+    const nextDocument = replaceLevel(document, nextLevel);
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new UpdateLevelCommand(previous),
+    };
+  }
+}
+
+export class RemoveLevelCommand implements EditorCommand {
+  readonly type = "RemoveLevel";
+
+  constructor(private readonly levelId: EntityId) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    if (document.levels.length <= 1) {
+      throw new Error("A project must keep at least one level.");
+    }
+
+    const index = document.levels.findIndex((level) => level.id === this.levelId);
+    if (index < 0) throw new Error(`Level ${this.levelId} does not exist.`);
+    const level = document.levels[index];
+    if (!level) throw new Error(`Level ${this.levelId} does not exist.`);
+
+    const nextDocument = {
+      ...document,
+      levels: document.levels.filter((candidate) => candidate.id !== this.levelId),
+    };
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new AddLevelCommand({ level, index }),
+    };
+  }
+}
+
 export type WallEndpoint =
   | { kind: "existing"; vertexId: EntityId }
   | { kind: "new"; vertex: Vertex };
