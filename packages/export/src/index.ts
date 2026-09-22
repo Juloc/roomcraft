@@ -78,7 +78,7 @@ export async function exportProjectGlb(
 
   const build = buildRoomSceneGraph(document, activeLevelId, {
     levelScope: "all",
-    modelAssets: options.modelAssets,
+    ...(options.modelAssets ? { modelAssets: options.modelAssets } : {}),
     showCeilings: options.showCeilings ?? true,
     externalModelFailure: "reject",
     loadModelPrototype: loadPrototype,
