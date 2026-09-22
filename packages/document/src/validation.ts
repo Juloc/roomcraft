@@ -1,7 +1,9 @@
 import {
   CURRENT_SCHEMA_VERSION,
   type Level,
+  type ObjectInstance,
   type Opening,
+  type ParametricCabinetDefinition,
   type ProjectDocument,
   type Wall,
 } from "./schema";
@@ -44,6 +46,7 @@ export function validateProjectDocument(document: ProjectDocument): void {
   }
 
   const parametricAssetIds = new Set<string>();
+  const parametricAssetById = new Map<string, ParametricCabinetDefinition>();
   for (const asset of document.parametricAssets) {
     if (!asset.id || parametricAssetIds.has(asset.id)) {
       throw new Error(
@@ -110,6 +113,7 @@ export function validateProjectDocument(document: ProjectDocument): void {
       materialIds,
       `Parametric cabinet ${asset.id} materialId`,
     );
+    parametricAssetById.set(asset.id, asset);
   }
 
   const levelIds = new Set<string>();
@@ -193,11 +197,13 @@ export function validateProjectDocument(document: ProjectDocument): void {
       }
       if (object.assetId.startsWith("parametric:")) {
         const definitionId = object.assetId.slice("parametric:".length);
-        if (!definitionId || !parametricAssetIds.has(definitionId)) {
+        const definition = parametricAssetById.get(definitionId);
+        if (!definition) {
           throw new Error(
             `Object ${object.id} references missing parametric asset ${definitionId || "(empty)"}.`,
           );
         }
+        validateParametricObjectDimensions(object, definition);
       }
 
       for (const [field, value] of [
@@ -346,6 +352,36 @@ export function validateProjectDocument(document: ProjectDocument): void {
         }
       }
     }
+  }
+}
+
+function validateParametricObjectDimensions(
+  object: ObjectInstance,
+  definition: ParametricCabinetDefinition,
+): void {
+  const minimumWidthMm = definition.panelThicknessMm * 2 + 200;
+  const minimumDepthMm = definition.backThicknessMm + 150;
+  const minimumHeightMm =
+    definition.plinthHeightMm +
+    definition.worktopThicknessMm +
+    definition.panelThicknessMm * 2 +
+    definition.shelfCount * definition.shelfThicknessMm +
+    (definition.shelfCount + 1) * 60;
+
+  if (object.widthMm < minimumWidthMm) {
+    throw new Error(
+      `Object ${object.id} widthMm must be at least ${minimumWidthMm} mm for parametric cabinet ${definition.id}.`,
+    );
+  }
+  if (object.depthMm < minimumDepthMm) {
+    throw new Error(
+      `Object ${object.id} depthMm must be at least ${minimumDepthMm} mm for parametric cabinet ${definition.id}.`,
+    );
+  }
+  if (object.heightMm < minimumHeightMm) {
+    throw new Error(
+      `Object ${object.id} heightMm must be at least ${minimumHeightMm} mm for parametric cabinet ${definition.id}.`,
+    );
   }
 }
 
