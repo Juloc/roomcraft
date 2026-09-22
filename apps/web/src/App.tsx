@@ -1,5 +1,6 @@
 import {
   BUILTIN_ASSETS,
+  catalogVersionAssetId,
   getBuiltinAssetDefinition,
 } from "@roomcraft/catalog";
 import {
@@ -53,6 +54,7 @@ import {
   NumberField,
   Panel,
   SegmentedControl,
+  TextField,
   Toolbar,
 } from "@roomcraft/ui";
 import {
@@ -62,6 +64,11 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { assetContentUrl, readImageDimensions, uploadBlueprintAsset } from "./assets-api";
+import {
+  searchCatalogItems,
+  type CatalogItemSummaryDto,
+  type CatalogVersionDto,
+} from "./catalog-api";
 import { useProjectSession, type SaveState } from "./use-project-session";
 
 type ViewMode = "2d" | "3d";
@@ -84,6 +91,44 @@ interface BlueprintCalibrationDraft {
   firstPoint: PlanPoint | null;
   secondPoint: PlanPoint | null;
 }
+
+interface FurnitureDefinition {
+  id: string;
+  name: string;
+  source: "builtin" | "catalog";
+  category: string;
+  manufacturer: string | null;
+  sku: string | null;
+  productUrl: string | null;
+  thumbnailAssetId: string | null;
+  defaultDimensionsMm: {
+    widthMm: number;
+    depthMm: number;
+    heightMm: number;
+  };
+  minimumDimensionsMm: {
+    widthMm: number;
+    depthMm: number;
+    heightMm: number;
+  };
+  resizable: boolean;
+}
+
+const BUILTIN_FURNITURE: readonly FurnitureDefinition[] = BUILTIN_ASSETS.map(
+  (asset) => ({
+    id: asset.id,
+    name: asset.name,
+    source: "builtin",
+    category: asset.category,
+    manufacturer: null,
+    sku: null,
+    productUrl: null,
+    thumbnailAssetId: null,
+    defaultDimensionsMm: asset.defaultDimensionsMm,
+    minimumDimensionsMm: asset.minimumDimensionsMm,
+    resizable: asset.resizable,
+  }),
+);
 
 const VIEW_OPTIONS = [
   { value: "2d", label: "2D" },
@@ -116,6 +161,17 @@ export function App() {
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [activeFurnitureAssetId, setActiveFurnitureAssetId] =
     useState<string>("builtin:box");
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogResults, setCatalogResults] = useState<FurnitureDefinition[]>([]);
+  const [catalogDefinitions, setCatalogDefinitions] = useState<
+    Record<string, FurnitureDefinition>
+  >({});
+  const [catalogSearchState, setCatalogSearchState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [catalogSearchError, setCatalogSearchError] = useState<string | null>(null);
+  const [catalogResultTotal, setCatalogResultTotal] = useState(0);
+  const catalogRequestRef = useRef(0);
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
   const blueprintFileRef = useRef<HTMLInputElement | null>(null);
   const [blueprintImportState, setBlueprintImportState] = useState<"idle" | "uploading">("idle");
@@ -203,8 +259,26 @@ export function App() {
       ? null
       : level.objects.find((object) => object.id === selectedObjectId) ?? null;
   const selectedObjectDefinition = selectedObject
-    ? getBuiltinAssetDefinition(selectedObject.assetId)
+    ? resolveFurnitureDefinition(selectedObject.assetId)
     : null;
+  const activeFurnitureDefinition =
+    resolveFurnitureDefinition(activeFurnitureAssetId) ??
+    BUILTIN_FURNITURE[0] ??
+    null;
+
+  function resolveFurnitureDefinition(
+    assetId: string,
+  ): FurnitureDefinition | null {
+    const builtin = getBuiltinAssetDefinition(assetId);
+    if (builtin) {
+      return (
+        BUILTIN_FURNITURE.find((candidate) => candidate.id === builtin.id) ??
+        null
+      );
+    }
+
+    return catalogDefinitions[assetId] ?? null;
+  }
 
   function currentLevel() {
     return document.levels.find((candidate) => candidate.id === levelId) ?? null;
