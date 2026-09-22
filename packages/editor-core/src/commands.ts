@@ -5,6 +5,7 @@ import {
   type Level,
   type ObjectInstance,
   type Opening,
+  type ParametricFurnitureDefinition,
   type ProjectDocument,
   type Vertex,
   type Wall,
@@ -549,6 +550,133 @@ export class MoveBlueprintLayerCommand implements EditorCommand {
         blueprintId: this.input.blueprintId,
         toIndex: fromIndex,
       }),
+    };
+  }
+}
+
+export interface AddParametricAssetInput {
+  definition: ParametricFurnitureDefinition;
+  index?: number;
+}
+
+export class AddParametricAssetCommand implements EditorCommand {
+  readonly type = "AddParametricAsset";
+
+  constructor(private readonly input: AddParametricAssetInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    if (
+      document.parametricAssets.some(
+        (candidate) => candidate.id === this.input.definition.id,
+      )
+    ) {
+      throw new Error(
+        `Parametric asset ${this.input.definition.id} already exists.`,
+      );
+    }
+
+    const index = this.input.index ?? document.parametricAssets.length;
+    if (
+      !Number.isSafeInteger(index) ||
+      index < 0 ||
+      index > document.parametricAssets.length
+    ) {
+      throw new Error("Parametric asset insertion index is invalid.");
+    }
+
+    const parametricAssets = [...document.parametricAssets];
+    parametricAssets.splice(index, 0, this.input.definition);
+    const nextDocument: ProjectDocument = {
+      ...document,
+      parametricAssets,
+    };
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new RemoveParametricAssetCommand(this.input.definition.id),
+    };
+  }
+}
+
+export interface UpdateParametricAssetInput {
+  definition: ParametricFurnitureDefinition;
+}
+
+export class UpdateParametricAssetCommand implements EditorCommand {
+  readonly type = "UpdateParametricAsset";
+
+  constructor(private readonly input: UpdateParametricAssetInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const previous = document.parametricAssets.find(
+      (candidate) => candidate.id === this.input.definition.id,
+    );
+    if (!previous) {
+      throw new Error(
+        `Parametric asset ${this.input.definition.id} does not exist.`,
+      );
+    }
+    if (previous.kind !== this.input.definition.kind) {
+      throw new Error("Parametric asset kind is immutable. Replace the asset instead.");
+    }
+
+    const nextDocument: ProjectDocument = {
+      ...document,
+      parametricAssets: document.parametricAssets.map((candidate) =>
+        candidate.id === this.input.definition.id
+          ? this.input.definition
+          : candidate,
+      ),
+    };
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new UpdateParametricAssetCommand({ definition: previous }),
+    };
+  }
+}
+
+export class RemoveParametricAssetCommand implements EditorCommand {
+  readonly type = "RemoveParametricAsset";
+
+  constructor(private readonly definitionId: EntityId) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    const index = document.parametricAssets.findIndex(
+      (candidate) => candidate.id === this.definitionId,
+    );
+    if (index < 0) {
+      throw new Error(`Parametric asset ${this.definitionId} does not exist.`);
+    }
+
+    const assetId = `parametric:${this.definitionId}`;
+    const referencedBy = document.levels
+      .flatMap((level) => level.objects)
+      .find((object) => object.assetId === assetId);
+    if (referencedBy) {
+      throw new Error(
+        `Parametric asset ${this.definitionId} is still used by object ${referencedBy.id}.`,
+      );
+    }
+
+    const definition = document.parametricAssets[index];
+    if (!definition) {
+      throw new Error(`Parametric asset ${this.definitionId} does not exist.`);
+    }
+
+    const nextDocument: ProjectDocument = {
+      ...document,
+      parametricAssets: document.parametricAssets.filter(
+        (candidate) => candidate.id !== this.definitionId,
+      ),
+    };
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new AddParametricAssetCommand({ definition, index }),
     };
   }
 }
