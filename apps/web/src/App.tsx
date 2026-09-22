@@ -45,8 +45,10 @@ import {
 } from "@roomcraft/editor-core";
 import { projectLevel2D } from "@roomcraft/render-2d";
 import {
+  inspectGlbFile,
   RoomSceneRenderer,
   type RoomSceneLevelScope,
+  type RuntimeModelAsset,
 } from "@roomcraft/render-3d";
 import {
   Button,
@@ -60,12 +62,19 @@ import {
 } from "@roomcraft/ui";
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { assetContentUrl, readImageDimensions, uploadBlueprintAsset } from "./assets-api";
 import {
+  assetContentUrl,
+  readImageDimensions,
+  uploadBlueprintAsset,
+  uploadModelAsset,
+} from "./assets-api";
+import {
+  ensureCatalogItem,
   getCatalogItem,
   searchCatalogItems,
   type CatalogItemSummaryDto,
@@ -103,6 +112,7 @@ interface FurnitureDefinition {
   sku: string | null;
   productUrl: string | null;
   thumbnailAssetId: string | null;
+  modelAssetId: string | null;
   defaultDimensionsMm: {
     widthMm: number;
     depthMm: number;
@@ -126,6 +136,7 @@ const BUILTIN_FURNITURE: readonly FurnitureDefinition[] = BUILTIN_ASSETS.map(
     sku: null,
     productUrl: null,
     thumbnailAssetId: null,
+    modelAssetId: null,
     defaultDimensionsMm: asset.defaultDimensionsMm,
     minimumDimensionsMm: asset.minimumDimensionsMm,
     resizable: asset.resizable,
@@ -168,6 +179,7 @@ function catalogFurnitureDefinition(
     sku: item.sku,
     productUrl: item.productUrl,
     thumbnailAssetId: version.thumbnailAssetId,
+    modelAssetId: version.assetId,
     defaultDimensionsMm: dimensions,
     minimumDimensionsMm: dimensions,
     resizable: false,
@@ -199,14 +211,45 @@ export function App() {
   const [catalogSearchError, setCatalogSearchError] = useState<string | null>(null);
   const [catalogResultTotal, setCatalogResultTotal] = useState(0);
   const catalogRequestRef = useRef(0);
+  const catalogLoadingRef = useRef(new Set<string>());
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
   const blueprintFileRef = useRef<HTMLInputElement | null>(null);
+  const modelFileRef = useRef<HTMLInputElement | null>(null);
+  const [modelImportState, setModelImportState] = useState<"idle" | "importing">("idle");
+  const [modelImportError, setModelImportError] = useState<string | null>(null);
   const [blueprintImportState, setBlueprintImportState] = useState<"idle" | "uploading">("idle");
   const [blueprintImportError, setBlueprintImportError] = useState<string | null>(null);
   const [calibrationDraft, setCalibrationDraft] = useState<BlueprintCalibrationDraft | null>(null);
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
   const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
+
+  useEffect(() => {
+    const usedCatalogAssets = new Set(
+      document.levels
+        .flatMap((candidate) => candidate.objects)
+        .map((object) => object.assetId)
+        .filter((assetId) => parseCatalogVersionAssetId(assetId) !== null),
+    );
+
+    for (const assetId of usedCatalogAssets) {
+      if (!catalogDefinitions[assetId]) void loadCatalogDefinition(assetId);
+    }
+  }, [document, catalogDefinitions]);
+
+  const runtimeModelAssets = useMemo<RuntimeModelAsset[]>(
+    () =>
+      Object.values(catalogDefinitions)
+        .filter(
+          (definition): definition is FurnitureDefinition & { modelAssetId: string } =>
+            definition.modelAssetId !== null,
+        )
+        .map((definition) => ({
+          objectAssetId: definition.id,
+          contentUrl: assetContentUrl(definition.modelAssetId),
+        })),
+    [catalogDefinitions],
+  );
 
   if (saveState === "loading") {
     return (
@@ -355,11 +398,12 @@ export function App() {
   }
 
   async function loadCatalogDefinition(assetId: string) {
-    if (catalogDefinitions[assetId]) return;
+    if (catalogDefinitions[assetId] || catalogLoadingRef.current.has(assetId)) return;
 
     const reference = parseCatalogVersionAssetId(assetId);
     if (!reference) return;
 
+    catalogLoadingRef.current.add(assetId);
     try {
       const item = await getCatalogItem(reference.itemId);
       const version = item.versions.find(
@@ -395,6 +439,79 @@ export function App() {
           ? error.message
           : "Catalog item could not be loaded.",
       );
+    } finally {
+      catalogLoadingRef.current.delete(assetId);
+    }
+  }
+
+  async function importGlbFurniture(file: File) {
+    setModelImportState("importing");
+    setModelImportError(null);
+
+    try {
+      const inspection = await inspectGlbFile(file);
+      const asset = await uploadModelAsset(file);
+      const itemId = `custom_${asset.sha256.slice(0, 24)}`;
+      const rawName = file.name.replace(/\.glb$/i, "").trim();
+      const item = await ensureCatalogItem({
+        id: itemId,
+        name: (rawName || "Imported model").slice(0, 256),
+        category: "custom",
+        manufacturer: null,
+        sku: null,
+        productUrl: null,
+        version: {
+          assetId: asset.id,
+          thumbnailAssetId: null,
+          widthMm: inspection.widthMm,
+          depthMm: inspection.depthMm,
+          heightMm: inspection.heightMm,
+          metadata: {
+            source: "user-upload",
+            format: "glb",
+            meshCount: inspection.meshCount,
+            normalization: "gltf-metres-bounds-center-bottom",
+          },
+        },
+      });
+
+      const version =
+        item.versions.find((candidate) => candidate.version === item.currentVersion) ??
+        item.versions[0];
+      if (!version) throw new Error("Imported catalog item has no version.");
+
+      const definition = catalogFurnitureDefinition(
+        {
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          manufacturer: item.manufacturer,
+          sku: item.sku,
+          productUrl: item.productUrl,
+          currentVersion: item.currentVersion,
+          updatedUtc: item.updatedUtc,
+          version,
+        },
+        version,
+      );
+
+      setCatalogDefinitions((current) => ({
+        ...current,
+        [definition.id]: definition,
+      }));
+      setCatalogResults((current) => [
+        definition,
+        ...current.filter((candidate) => candidate.id !== definition.id),
+      ]);
+      setActiveFurnitureAssetId(definition.id);
+      setActiveTool("furniture");
+      setViewMode("2d");
+    } catch (error) {
+      setModelImportError(
+        error instanceof Error ? error.message : "GLB import failed.",
+      );
+    } finally {
+      setModelImportState("idle");
     }
   }
 
@@ -1140,6 +1257,7 @@ export function App() {
               levelId={levelId}
               levelScope={threeLevelScope}
               selectedId={selectedObjectId ?? selectedWallId}
+              modelAssets={runtimeModelAssets}
             />
           )}
         </section>
@@ -1293,6 +1411,41 @@ export function App() {
                         </Button>
                       ))}
                     </div>
+                  </div>
+
+                  <div className="furniture-palette__section">
+                    <strong className="furniture-palette__section-title">
+                      My 3D models
+                    </strong>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={modelImportState === "importing"}
+                      onClick={() => modelFileRef.current?.click()}
+                    >
+                      {modelImportState === "importing" ? "Importing…" : "Import GLB"}
+                    </Button>
+                    <input
+                      ref={modelFileRef}
+                      className="visually-hidden"
+                      type="file"
+                      accept=".glb,model/gltf-binary"
+                      tabIndex={-1}
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0];
+                        event.currentTarget.value = "";
+                        if (file) void importGlbFurniture(file);
+                      }}
+                    />
+                    {modelImportError ? (
+                      <div className="inline-error" role="alert">
+                        {modelImportError}
+                      </div>
+                    ) : null}
+                    <span className="property-hint">
+                      glTF 2.0 binary models are measured in metres, centered and
+                      placed on the floor automatically.
+                    </span>
                   </div>
 
                   <form
@@ -2483,6 +2636,7 @@ interface ThreeViewportProps {
   levelId: string;
   levelScope: RoomSceneLevelScope;
   selectedId: string | null;
+  modelAssets: readonly RuntimeModelAsset[];
 }
 
 function ThreeViewport({
@@ -2490,6 +2644,7 @@ function ThreeViewport({
   levelId,
   levelScope,
   selectedId,
+  modelAssets,
 }: ThreeViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<RoomSceneRenderer | null>(null);
@@ -2508,8 +2663,11 @@ function ThreeViewport({
   }, []);
 
   useEffect(() => {
-    rendererRef.current?.setDocument(document, levelId, { levelScope });
-  }, [document, levelId, levelScope]);
+    rendererRef.current?.setDocument(document, levelId, {
+      levelScope,
+      modelAssets,
+    });
+  }, [document, levelId, levelScope, modelAssets]);
 
   useEffect(() => {
     rendererRef.current?.setSelection(selectedId);
