@@ -1,6 +1,6 @@
 import { createEmptyProject } from "@roomcraft/document";
 import { describe, expect, it } from "vitest";
-import { AddBlueprintCommand, AddOpeningCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, SetWallLengthCommand } from "../src";
+import { AddBlueprintCommand, AddLevelCommand, AddOpeningCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, RemoveLevelCommand, SetWallLengthCommand, UpdateLevelCommand } from "../src";
 
 describe("CommandHistory", () => {
   it("adds a wall through a command and restores it through undo/redo", () => {
@@ -276,6 +276,78 @@ describe("CommandHistory", () => {
 
     history.redo();
     expect(history.document.levels[0]?.blueprints[0]?.assetId).toBe("asset_1");
+  });
+
+  it("adds, edits and removes levels through undoable commands", () => {
+    const history = new CommandHistory(createEmptyProject("project_levels"));
+
+    history.execute(
+      new AddLevelCommand({
+        level: {
+          id: "level_upper",
+          name: "Upper floor",
+          elevationMm: 2700,
+          defaultWallHeightMm: 2500,
+          floorThicknessMm: 200,
+          vertices: [],
+          walls: [],
+          openings: [],
+          objects: [],
+          blueprints: [],
+        },
+      }),
+    );
+
+    expect(history.document.levels.map((level) => level.id)).toEqual([
+      "level_ground",
+      "level_upper",
+    ]);
+
+    history.execute(
+      new UpdateLevelCommand({
+        levelId: "level_upper",
+        name: "First floor",
+        elevationMm: 2800,
+        floorThicknessMm: 220,
+      }),
+    );
+
+    expect(history.document.levels[1]).toMatchObject({
+      name: "First floor",
+      elevationMm: 2800,
+      floorThicknessMm: 220,
+    });
+
+    history.execute(new RemoveLevelCommand("level_upper"));
+    expect(history.document.levels).toHaveLength(1);
+
+    history.undo();
+    expect(history.document.levels[1]).toMatchObject({
+      id: "level_upper",
+      name: "First floor",
+      elevationMm: 2800,
+    });
+
+    history.undo();
+    expect(history.document.levels[1]).toMatchObject({
+      name: "Upper floor",
+      elevationMm: 2700,
+      floorThicknessMm: 200,
+    });
+
+    history.undo();
+    expect(history.document.levels).toHaveLength(1);
+
+    history.redo();
+    expect(history.document.levels[1]?.id).toBe("level_upper");
+  });
+
+  it("does not allow deleting the last level", () => {
+    const history = new CommandHistory(createEmptyProject("project_levels"));
+
+    expect(() =>
+      history.execute(new RemoveLevelCommand("level_ground")),
+    ).toThrow("keep at least one level");
   });
 
 });

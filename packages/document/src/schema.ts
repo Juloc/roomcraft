@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 3 as const;
+export const CURRENT_SCHEMA_VERSION = 4 as const;
 
 export type EntityId = string;
 export type Millimetres = number;
@@ -22,6 +22,7 @@ export interface Level {
   name: string;
   elevationMm: Millimetres;
   defaultWallHeightMm: Millimetres;
+  floorThicknessMm: Millimetres;
   vertices: Vertex[];
   walls: Wall[];
   openings: Opening[];
@@ -109,6 +110,7 @@ export function createEmptyProject(id: EntityId, name = "Untitled project"): Pro
         name: "Ground floor",
         elevationMm: 0,
         defaultWallHeightMm: 2500,
+        floorThicknessMm: 200,
         vertices: [],
         walls: [],
         openings: [],
