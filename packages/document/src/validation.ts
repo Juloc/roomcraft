@@ -58,6 +58,9 @@ export function validateProjectDocument(document: ProjectDocument): void {
       if (!Number.isFinite(blueprint.opacity) || blueprint.opacity < 0 || blueprint.opacity > 1) {
         throw new Error(`Blueprint ${blueprint.id} opacity must be between 0 and 1.`);
       }
+      if (!blueprint.crop || typeof blueprint.crop !== "object") {
+        throw new Error(`Blueprint ${blueprint.id} crop is required.`);
+      }
       for (const [field, value] of [
         ["leftPx", blueprint.crop.leftPx],
         ["topPx", blueprint.crop.topPx],
