@@ -10,6 +10,7 @@ on:
       - packages/**
       - package.json
       - src/server/RoomCraft.Host/**
+      - src/server/Modules/**
   push:
     branches: [main]
   workflow_dispatch:
@@ -17,7 +18,7 @@ on:
       version:
         description: Container version without the v prefix
         required: true
-        default: 0.1.0-alpha.3
+        default: 0.1.0-alpha.4
 
 permissions:
   contents: write
@@ -25,7 +26,7 @@ permissions:
 
 env:
   IMAGE_NAME: ghcr.io/juloc/roomcraft
-  VERSION: ${{ inputs.version || '0.1.0-alpha.3' }}
+  VERSION: ${{ inputs.version || '0.1.0-alpha.4' }}
 
 jobs:
   release:
@@ -100,7 +101,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          prerelease_args=()
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease_args+=(--prerelease)
+          fi
+
           gh release create "v$VERSION" \
             --target "$GITHUB_SHA" \
             --title "RoomCraft $VERSION" \
-            --generate-notes
+            --generate-notes \
+            "${prerelease_args[@]}"
