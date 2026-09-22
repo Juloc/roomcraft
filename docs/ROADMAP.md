@@ -126,7 +126,7 @@ Next:
 
 ---
 
-## Phase 3 — Blueprint workflow 🚧
+## Phase 3 — Blueprint workflow ✅
 
 Goal: let users trace an existing plan without CAD knowledge.
 
@@ -142,7 +142,7 @@ Goal: let users trace an existing plan without CAD knowledge.
 - per-level blueprint ✅
 - preserve source asset separately from editor geometry ✅
 - schema v3 crop migration ✅
-- layer ordering / deletion 🚧
+- layer ordering / deletion ✅
 
 Definition of done:
 - user can import a photographed/scanned plan, calibrate one known wall and trace accurate walls over it
@@ -153,12 +153,12 @@ Definition of done:
 
 Goal: support real multi-storey homes/apartments.
 
-- level create/rename/delete 🚧
-- level elevation 🚧
-- default storey height 🚧
-- floor thickness 🚧
-- duplicate shell to new level
-- show lower/upper level as optional ghost
+- level create/rename/delete ✅
+- level elevation ✅
+- default storey height ✅
+- floor thickness ✅
+- duplicate shell to new level 🚧
+- show lower/upper level as optional ghost 🚧
 - 3D all-level view
 - stairs ◻ after basic multi-level behavior is stable
 
