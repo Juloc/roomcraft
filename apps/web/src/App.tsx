@@ -23,7 +23,9 @@ import {
   RemoveBlueprintCommand,
   RemoveLevelCommand,
   RemoveObjectCommand,
+  SetRoomSurfaceMaterialsCommand,
   SetWallLengthCommand,
+  SetWallMaterialsCommand,
   UpdateBlueprintCommand,
   UpdateLevelCommand,
   UpdateObjectCommand,
@@ -57,6 +59,7 @@ import {
   NumberField,
   Panel,
   SegmentedControl,
+  SelectField,
   TextField,
   Toolbar,
 } from "@roomcraft/ui";
@@ -195,6 +198,7 @@ export function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
   const [threeLevelScope, setThreeLevelScope] =
     useState<RoomSceneLevelScope>("active");
+  const [showCeilings, setShowCeilings] = useState(false);
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
   const [ghostMode, setGhostMode] = useState<GhostMode>("off");
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
@@ -310,6 +314,22 @@ export function App() {
     selectedWallId === null
       ? null
       : projection.walls.find((wall) => wall.id === selectedWallId) ?? null;
+  const selectedRoomKey =
+    selection.primary?.kind === "room" &&
+    projection.rooms.some((room) => room.key === selection.primary?.id)
+      ? selection.primary.id
+      : null;
+  const selectedRoom =
+    selectedRoomKey === null
+      ? null
+      : projection.rooms.find((room) => room.key === selectedRoomKey) ?? null;
+  const materialOptions = [
+    { value: "", label: "Default" },
+    ...document.materials.map((material) => ({
+      value: material.id,
+      label: material.name,
+    })),
+  ];
   const selectedBlueprintId =
     selection.primary?.kind === "blueprint" &&
     level.blueprints.some((blueprint) => blueprint.id === selection.primary?.id)
@@ -1086,6 +1106,42 @@ export function App() {
     setSelection(selectOnly({ kind: "wall", id: wallId }));
   }
 
+  function selectRoom(roomKey: string) {
+    setSelection(selectOnly({ kind: "room", id: roomKey }));
+  }
+
+  function setSelectedWallMaterial(
+    side: "left" | "right",
+    materialId: string,
+  ) {
+    if (!selectedWallId) return;
+    session.execute(
+      new SetWallMaterialsCommand({
+        levelId,
+        wallId: selectedWallId,
+        ...(side === "left"
+          ? { leftMaterialId: materialId || null }
+          : { rightMaterialId: materialId || null }),
+      }),
+    );
+  }
+
+  function setSelectedRoomMaterial(
+    surface: "floor" | "ceiling",
+    materialId: string,
+  ) {
+    if (!selectedRoomKey) return;
+    session.execute(
+      new SetRoomSurfaceMaterialsCommand({
+        levelId,
+        roomKey: selectedRoomKey,
+        ...(surface === "floor"
+          ? { floorMaterialId: materialId || null }
+          : { ceilingMaterialId: materialId || null }),
+      }),
+    );
+  }
+
   function clearSelection() {
     setSelection(EMPTY_SELECTION);
   }
@@ -1148,6 +1204,15 @@ export function App() {
             onChange={changeView}
             ariaLabel="Editor view"
           />
+          {viewMode === "3d" ? (
+            <Button
+              variant={showCeilings ? "primary" : "ghost"}
+              onClick={() => setShowCeilings((current) => !current)}
+              title="Show or hide derived room ceilings"
+            >
+              Ceilings
+            </Button>
+          ) : null}
           {viewMode === "3d" && document.levels.length > 1 ? (
             <SegmentedControl
               value={threeLevelScope}
@@ -1232,6 +1297,7 @@ export function App() {
               ghostLabel={ghostLevel?.name ?? null}
               activeTool={activeTool}
               selectedWallId={selectedWallId}
+              selectedRoomKey={selectedRoomKey}
               selectedBlueprintId={selectedBlueprintId}
               selectedObjectId={selectedObjectId}
               calibrationDraft={calibrationDraft}
@@ -1242,6 +1308,7 @@ export function App() {
               openingHover={openingHover}
               onPoint={handlePlanPoint}
               onSelectWall={selectWall}
+              onSelectRoom={selectRoom}
               onSelectBlueprint={selectBlueprint}
               onMoveBlueprint={moveBlueprint}
               onSelectObject={selectObject}
@@ -1256,8 +1323,9 @@ export function App() {
               document={document}
               levelId={levelId}
               levelScope={threeLevelScope}
-              selectedId={selectedObjectId ?? selectedWallId}
+              selectedId={selectedObjectId ?? selectedWallId ?? selectedRoomKey}
               modelAssets={runtimeModelAssets}
+              showCeilings={showCeilings}
             />
           )}
         </section>
@@ -1589,6 +1657,39 @@ export function App() {
                     minMm={100}
                     helpText="The start vertex stays fixed; connected walls at the moved endpoint follow it."
                     onCommit={setSelectedWallLength}
+                  />
+                  <SelectField
+                    label="Left surface"
+                    value={selectedWall.leftMaterialId ?? ""}
+                    options={materialOptions}
+                    helpText="Left side when looking from the wall start toward its end."
+                    onChange={(value) => setSelectedWallMaterial("left", value)}
+                  />
+                  <SelectField
+                    label="Right surface"
+                    value={selectedWall.rightMaterialId ?? ""}
+                    options={materialOptions}
+                    onChange={(value) => setSelectedWallMaterial("right", value)}
+                  />
+                </div>
+              ) : null}
+
+              {selectedRoom ? (
+                <div className="selection-properties">
+                  <span className="eyebrow">Selected room</span>
+                  <strong>{formatAreaSquareMetres(selectedRoom.areaMm2)} m²</strong>
+                  <SelectField
+                    label="Floor"
+                    value={selectedRoom.floorMaterialId ?? ""}
+                    options={materialOptions}
+                    onChange={(value) => setSelectedRoomMaterial("floor", value)}
+                  />
+                  <SelectField
+                    label="Ceiling"
+                    value={selectedRoom.ceilingMaterialId ?? ""}
+                    options={materialOptions}
+                    helpText="Enable Ceilings in 3D to preview the ceiling surface."
+                    onChange={(value) => setSelectedRoomMaterial("ceiling", value)}
                   />
                 </div>
               ) : null}
@@ -1972,6 +2073,7 @@ interface PlanCanvasProps {
   ghostLabel: string | null;
   activeTool: EditorTool;
   selectedWallId: string | null;
+  selectedRoomKey: string | null;
   selectedBlueprintId: string | null;
   selectedObjectId: string | null;
   calibrationDraft: BlueprintCalibrationDraft | null;
@@ -1982,6 +2084,7 @@ interface PlanCanvasProps {
   openingHover: OpeningWallPlacement | null;
   onPoint(point: PlanPoint): void;
   onSelectWall(wallId: string): void;
+  onSelectRoom(roomKey: string): void;
   onSelectBlueprint(blueprintId: string): void;
   onMoveBlueprint(blueprintId: string, xMm: number, yMm: number): void;
   onSelectObject(objectId: string): void;
@@ -2004,6 +2107,7 @@ function PlanCanvas({
   ghostLabel,
   activeTool,
   selectedWallId,
+  selectedRoomKey,
   selectedBlueprintId,
   selectedObjectId,
   calibrationDraft,
@@ -2014,6 +2118,7 @@ function PlanCanvas({
   openingHover,
   onPoint,
   onSelectWall,
+  onSelectRoom,
   onSelectBlueprint,
   onMoveBlueprint,
   onSelectObject,
@@ -2637,6 +2742,7 @@ interface ThreeViewportProps {
   levelScope: RoomSceneLevelScope;
   selectedId: string | null;
   modelAssets: readonly RuntimeModelAsset[];
+  showCeilings: boolean;
 }
 
 function ThreeViewport({
@@ -2645,6 +2751,7 @@ function ThreeViewport({
   levelScope,
   selectedId,
   modelAssets,
+  showCeilings,
 }: ThreeViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<RoomSceneRenderer | null>(null);
@@ -2666,8 +2773,9 @@ function ThreeViewport({
     rendererRef.current?.setDocument(document, levelId, {
       levelScope,
       modelAssets,
+      showCeilings,
     });
-  }, [document, levelId, levelScope, modelAssets]);
+  }, [document, levelId, levelScope, modelAssets, showCeilings]);
 
   useEffect(() => {
     rendererRef.current?.setSelection(selectedId);
