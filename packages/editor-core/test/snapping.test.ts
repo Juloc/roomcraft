@@ -23,6 +23,70 @@ describe("snapPlanPoint", () => {
     });
   });
 
+  it("snaps to the interior of an existing wall before the grid", () => {
+    const document = createEmptyProject("project_wall_snap");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    level.vertices.push(
+      { id: "wall_start", xMm: 0, yMm: 0 },
+      { id: "wall_end", xMm: 3000, yMm: 1500 },
+    );
+    level.walls.push({
+      id: "wall_1",
+      startVertexId: "wall_start",
+      endVertexId: "wall_end",
+      thicknessMm: 120,
+      heightMm: null,
+      leftMaterialId: null,
+      rightMaterialId: null,
+    });
+
+    const result = snapPlanPoint(
+      { xMm: 1510, yMm: 810 },
+      level,
+      { gridSizeMm: 100, vertexToleranceMm: 160, wallToleranceMm: 160 },
+    );
+
+    expect(result).toEqual({
+      point: { xMm: 1532, yMm: 766 },
+      source: "wall",
+      wallId: "wall_1",
+    });
+  });
+
+  it("still prefers an existing vertex over the wall interior", () => {
+    const document = createEmptyProject("project_wall_vertex_priority");
+    const level = document.levels[0];
+    if (!level) throw new Error("Test fixture must contain a level.");
+
+    level.vertices.push(
+      { id: "wall_start", xMm: 0, yMm: 0 },
+      { id: "wall_end", xMm: 3000, yMm: 0 },
+    );
+    level.walls.push({
+      id: "wall_1",
+      startVertexId: "wall_start",
+      endVertexId: "wall_end",
+      thicknessMm: 120,
+      heightMm: null,
+      leftMaterialId: null,
+      rightMaterialId: null,
+    });
+
+    const result = snapPlanPoint(
+      { xMm: 70, yMm: 30 },
+      level,
+      { gridSizeMm: 100, vertexToleranceMm: 160, wallToleranceMm: 160 },
+    );
+
+    expect(result).toMatchObject({
+      source: "vertex",
+      vertexId: "wall_start",
+      point: { xMm: 0, yMm: 0 },
+    });
+  });
+
   it("falls back to the configured grid", () => {
     const document = createEmptyProject("project_1");
     const level = document.levels[0];
