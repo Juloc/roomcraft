@@ -1122,3 +1122,29 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+.wall-vertex-handle {
+  fill: var(--rc-surface);
+  stroke: var(--rc-accent);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+  touch-action: none;
+}
+
+.wall-vertex-handle:hover {
+  fill: color-mix(in srgb, var(--rc-accent) 14%, var(--rc-surface));
+}
+
+.wall-vertex-handle:active {
+  cursor: grabbing;
+  fill: color-mix(in srgb, var(--rc-accent) 24%, var(--rc-surface));
+}
+
+.selection-properties > .rc-segmented-control {
+  width: 100%;
+}
+
+.selection-properties > .rc-segmented-control .rc-segmented-control__button {
+  flex: 1 1 0;
+}
