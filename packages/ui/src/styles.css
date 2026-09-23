@@ -346,11 +346,20 @@ textarea {
     background: var(--rc-surface);
     box-shadow: 0 -16px 40px rgb(0 0 0 / 0.22);
     transform: translateY(calc(100% + 24px));
-    transition: transform 180ms ease;
+    pointer-events: none;
+    visibility: hidden;
+    transition:
+      transform 180ms ease,
+      visibility 0s linear 180ms;
   }
 
   .rc-sheet--open {
     transform: translateY(0);
+    pointer-events: auto;
+    visibility: visible;
+    transition:
+      transform 180ms ease,
+      visibility 0s;
   }
 
   .rc-sheet__handle {

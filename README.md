@@ -76,7 +76,7 @@ On the first browser visit, RoomCraft asks you to create the first local adminis
 ```yaml
 services:
   roomcraft:
-    image: ghcr.io/juloc/roomcraft:0.1.0-alpha.5
+    image: ghcr.io/juloc/roomcraft:0.1.0-alpha.6
     volumes:
       - roomcraft_data:/data
     ports:
@@ -108,6 +108,6 @@ The current alpha includes:
 - compact desktop command bar, grouped icon tool rail, clear inspector and opt-in topology diagnostics
 - phone-first `100dvh` editor with compact header, fixed bottom tools, shared bottom-sheet inspector, one-finger actions and two-finger pan/pinch zoom
 - persistent single-container deployment with internal PostgreSQL 18
-- frontend/backend/container quality gates
+- frontend/backend/container quality gates plus authenticated desktop/mobile Playwright acceptance
 
 See [`docs/MOBILE_UX_AUTH.md`](docs/MOBILE_UX_AUTH.md) for the mobile and identity architecture.
