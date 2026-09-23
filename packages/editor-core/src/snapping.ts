@@ -1,23 +1,25 @@
 import type { EntityId, Level } from "@roomcraft/document";
 import { distanceMm, snapToGrid, type Point2Mm } from "@roomcraft/geometry";
 
-export type SnapSource = "vertex" | "object" | "grid";
+export type SnapSource = "vertex" | "wall" | "object" | "grid";
 
 export interface PlanSnapResult {
   point: Point2Mm;
   source: SnapSource;
   vertexId?: EntityId;
+  wallId?: EntityId;
   objectId?: EntityId;
 }
 
 export interface PlanSnapOptions {
   gridSizeMm: number;
   vertexToleranceMm?: number;
+  wallToleranceMm?: number;
 }
 
 export function snapPlanPoint(
   point: Point2Mm,
-  level: Pick<Level, "vertices">,
+  level: Pick<Level, "vertices" | "walls">,
   options: PlanSnapOptions,
 ): PlanSnapResult {
   const vertexToleranceMm = options.vertexToleranceMm ?? 160;
@@ -49,6 +51,54 @@ export function snapPlanPoint(
     };
   }
 
+  const wallToleranceMm = options.wallToleranceMm ?? vertexToleranceMm;
+  if (!Number.isFinite(wallToleranceMm) || wallToleranceMm < 0) {
+    throw new Error("wallToleranceMm must be a non-negative finite number.");
+  }
+
+  const vertexById = new Map(
+    level.vertices.map((vertex) => [vertex.id, vertex] as const),
+  );
+  let nearestWall: {
+    id: EntityId;
+    point: Point2Mm;
+    distanceMm: number;
+  } | null = null;
+
+  for (const wall of level.walls) {
+    const start = vertexById.get(wall.startVertexId);
+    const end = vertexById.get(wall.endVertexId);
+    if (!start || !end) continue;
+
+    const candidate = closestPointOnSegment(point, start, end);
+    const candidateDistance = distanceMm(point, candidate);
+    if (candidateDistance > wallToleranceMm) continue;
+
+    if (
+      !nearestWall ||
+      candidateDistance < nearestWall.distanceMm ||
+      (candidateDistance === nearestWall.distanceMm &&
+        wall.id.localeCompare(nearestWall.id) < 0)
+    ) {
+      nearestWall = {
+        id: wall.id,
+        point: {
+          xMm: Math.round(candidate.xMm),
+          yMm: Math.round(candidate.yMm),
+        },
+        distanceMm: candidateDistance,
+      };
+    }
+  }
+
+  if (nearestWall) {
+    return {
+      point: nearestWall.point,
+      source: "wall",
+      wallId: nearestWall.id,
+    };
+  }
+
   return {
     point: {
       xMm: snapToGrid(Math.round(point.xMm), options.gridSizeMm),
@@ -58,6 +108,31 @@ export function snapPlanPoint(
   };
 }
 
+
+
+function closestPointOnSegment(
+  point: Point2Mm,
+  start: Point2Mm,
+  end: Point2Mm,
+): Point2Mm {
+  const dx = end.xMm - start.xMm;
+  const dy = end.yMm - start.yMm;
+  const denominator = dx * dx + dy * dy;
+  if (denominator === 0) return { ...start };
+
+  const parameter = Math.max(
+    0,
+    Math.min(
+      1,
+      ((point.xMm - start.xMm) * dx + (point.yMm - start.yMm) * dy) /
+        denominator,
+    ),
+  );
+  return {
+    xMm: start.xMm + parameter * dx,
+    yMm: start.yMm + parameter * dy,
+  };
+}
 
 export interface ObjectSnapSubject {
   id?: EntityId;

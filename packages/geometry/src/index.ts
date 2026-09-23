@@ -1,3 +1,4 @@
+export * from "./segment-topology";
 export * from "./planar-faces";
 
 export interface Point2Mm {

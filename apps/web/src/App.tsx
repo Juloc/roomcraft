@@ -18,16 +18,20 @@ import {
   AddObjectCommand,
   AddOpeningCommand,
   AddParametricAssetCommand,
-  AddWallCommand,
   CalibrateBlueprintCommand,
   EMPTY_SELECTION,
   MoveBlueprintLayerCommand,
+  MoveVertexCommand,
   RemoveBlueprintCommand,
   RemoveLevelCommand,
   RemoveObjectCommand,
   SetRoomSurfaceMaterialsCommand,
   SetWallLengthCommand,
   SetWallMaterialsCommand,
+  InsertWallWithTopologyCommand,
+  RemoveWallByIdCommand,
+  SetWallAngleCommand,
+  SetWallThicknessCommand,
   UpdateBlueprintCommand,
   UpdateLevelCommand,
   UpdateObjectCommand,
@@ -288,6 +292,7 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   const [blueprintImportError, setBlueprintImportError] = useState<string | null>(null);
   const [calibrationDraft, setCalibrationDraft] = useState<BlueprintCalibrationDraft | null>(null);
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
+  const [wallEditAnchor, setWallEditAnchor] = useState<"start" | "end">("start");
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
   const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
 
@@ -381,6 +386,20 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     selectedWallId === null
       ? null
       : projection.walls.find((wall) => wall.id === selectedWallId) ?? null;
+  const selectedWallRecord =
+    selectedWallId === null
+      ? null
+      : level.walls.find((wall) => wall.id === selectedWallId) ?? null;
+  const selectedWallAngleDeg = selectedWall
+    ? normalizeDegrees(
+        (Math.atan2(
+          selectedWall.y2Mm - selectedWall.y1Mm,
+          selectedWall.x2Mm - selectedWall.x1Mm,
+        ) *
+          180) /
+          Math.PI,
+      )
+    : null;
   const selectedRoomKey =
     selection.primary?.kind === "room" &&
     projection.rooms.some((room) => room.key === selection.primary?.id)
@@ -903,12 +922,13 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     const start = endpointFromSnap(wallDraft.start);
     const end = endpointFromSnap(snapped);
     session.execute(
-      new AddWallCommand({
+      new InsertWallWithTopologyCommand({
         levelId,
         wallId: createEntityId("wall"),
         start,
         end,
         thicknessMm: 120,
+        createId: (prefix) => createEntityId(prefix),
       }),
     );
 
@@ -1295,9 +1315,49 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
         levelId,
         wallId: selectedWallId,
         lengthMm,
-        anchor: "start",
+        anchor: wallEditAnchor,
       }),
     );
+  }
+
+  function setSelectedWallAngle(angleDeg: number) {
+    if (!selectedWallId) return;
+    session.execute(
+      new SetWallAngleCommand({
+        levelId,
+        wallId: selectedWallId,
+        angleDeg,
+        anchor: wallEditAnchor,
+      }),
+    );
+  }
+
+  function setSelectedWallThickness(thicknessMm: number) {
+    if (!selectedWallId) return;
+    session.execute(
+      new SetWallThicknessCommand({
+        levelId,
+        wallId: selectedWallId,
+        thicknessMm,
+      }),
+    );
+  }
+
+  function moveWallVertex(vertexId: string, xMm: number, yMm: number) {
+    session.execute(
+      new MoveVertexCommand({
+        levelId,
+        vertexId,
+        xMm: Math.round(xMm),
+        yMm: Math.round(yMm),
+      }),
+    );
+  }
+
+  function removeSelectedWall() {
+    if (!selectedWallId) return;
+    session.execute(new RemoveWallByIdCommand(levelId, selectedWallId));
+    setSelection(EMPTY_SELECTION);
   }
 
   function exportNativeProject() {
@@ -1817,13 +1877,44 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
                   {selectedWall ? (
                     <div className="selection-properties">
                       <span className="eyebrow">Selected wall</span>
+                      <SegmentedControl
+                        value={wallEditAnchor}
+                        options={[
+                          { value: "start", label: "Fix start" },
+                          { value: "end", label: "Fix end" },
+                        ]}
+                        onChange={setWallEditAnchor}
+                        ariaLabel="Fixed wall endpoint"
+                      />
                       <LengthField
                         label="Length"
                         valueMm={Math.round(selectedWall.lengthMm)}
                         minMm={100}
-                        helpText="The start vertex stays fixed; connected walls at the moved endpoint follow it."
+                        helpText={`The ${wallEditAnchor} endpoint stays fixed. Connected walls at the moved endpoint follow it.`}
                         onCommit={setSelectedWallLength}
                       />
+                      <NumberField
+                        label="Angle"
+                        value={selectedWallAngleDeg ?? 0}
+                        step={1}
+                        suffix="°"
+                        onCommit={setSelectedWallAngle}
+                      />
+                      <NumberField
+                        label="Thickness"
+                        value={selectedWall.thicknessMm}
+                        min={40}
+                        max={1000}
+                        step={10}
+                        suffix="mm"
+                        onCommit={(value) => setSelectedWallThickness(Math.round(value))}
+                      />
+                      <span className="property-hint">
+                        Drag either endpoint handle in the plan for direct vertex editing.
+                      </span>
+                      <Button variant="ghost" onClick={removeSelectedWall}>
+                        Delete wall
+                      </Button>
                       <SelectField
                         label="Left surface"
                         value={selectedWall.leftMaterialId ?? ""}
@@ -2550,6 +2641,8 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               ghostLabel={ghostLevel?.name ?? null}
               activeTool={activeTool}
               selectedWallId={selectedWallId}
+              selectedWallStartVertexId={selectedWallRecord?.startVertexId ?? null}
+              selectedWallEndVertexId={selectedWallRecord?.endVertexId ?? null}
               selectedRoomKey={selectedRoomKey}
               selectedBlueprintId={selectedBlueprintId}
               selectedObjectId={selectedObjectId}
@@ -2561,6 +2654,8 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               openingHover={openingHover}
               onPoint={handlePlanPoint}
               onSelectWall={selectWall}
+              onMoveVertex={moveWallVertex}
+              onDeleteSelectedWall={removeSelectedWall}
               onSelectRoom={selectRoom}
               onSelectBlueprint={selectBlueprint}
               onMoveBlueprint={moveBlueprint}
@@ -2638,6 +2733,8 @@ interface PlanCanvasProps {
   ghostLabel: string | null;
   activeTool: EditorTool;
   selectedWallId: string | null;
+  selectedWallStartVertexId: string | null;
+  selectedWallEndVertexId: string | null;
   selectedRoomKey: string | null;
   selectedBlueprintId: string | null;
   selectedObjectId: string | null;
@@ -2649,6 +2746,8 @@ interface PlanCanvasProps {
   openingHover: OpeningWallPlacement | null;
   onPoint(point: PlanPoint): void;
   onSelectWall(wallId: string): void;
+  onMoveVertex(vertexId: string, xMm: number, yMm: number): void;
+  onDeleteSelectedWall(): void;
   onSelectRoom(roomKey: string): void;
   onSelectBlueprint(blueprintId: string): void;
   onMoveBlueprint(blueprintId: string, xMm: number, yMm: number): void;
@@ -2673,6 +2772,8 @@ function PlanCanvas({
   ghostLabel,
   activeTool,
   selectedWallId,
+  selectedWallStartVertexId,
+  selectedWallEndVertexId,
   selectedRoomKey,
   selectedBlueprintId,
   selectedObjectId,
@@ -2684,6 +2785,8 @@ function PlanCanvas({
   openingHover,
   onPoint,
   onSelectWall,
+  onMoveVertex,
+  onDeleteSelectedWall,
   onSelectRoom,
   onSelectBlueprint,
   onMoveBlueprint,
@@ -2729,6 +2832,17 @@ function PlanCanvas({
   const [itemDragPreview, setItemDragPreview] = useState<{
     kind: "blueprint" | "object";
     id: string;
+    xMm: number;
+    yMm: number;
+  } | null>(null);
+  const vertexDragRef = useRef<{
+    pointerId: number;
+    vertexId: string;
+    currentXmm: number;
+    currentYmm: number;
+  } | null>(null);
+  const [vertexDragPreview, setVertexDragPreview] = useState<{
+    vertexId: string;
     xMm: number;
     yMm: number;
   } | null>(null);
@@ -2894,6 +3008,71 @@ function PlanCanvas({
     setItemDragPreview(null);
   }
 
+  function beginVertexDrag(
+    event: ReactPointerEvent<SVGCircleElement>,
+    vertexId: string,
+    xMm: number,
+    yMm: number,
+  ) {
+    if (activeTool !== "select" || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const svg = svgRef.current;
+    if (!svg) return;
+    svg.setPointerCapture(event.pointerId);
+    vertexDragRef.current = {
+      pointerId: event.pointerId,
+      vertexId,
+      currentXmm: Math.round(xMm),
+      currentYmm: Math.round(yMm),
+    };
+    setVertexDragPreview({
+      vertexId,
+      xMm: Math.round(xMm),
+      yMm: Math.round(yMm),
+    });
+  }
+
+  function updateVertexDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    const drag = vertexDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+
+    const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
+    if (!point) return true;
+    drag.currentXmm = Math.round(point.xMm);
+    drag.currentYmm = Math.round(point.yMm);
+    setVertexDragPreview({
+      vertexId: drag.vertexId,
+      xMm: drag.currentXmm,
+      yMm: drag.currentYmm,
+    });
+    return true;
+  }
+
+  function finishVertexDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    const drag = vertexDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    vertexDragRef.current = null;
+    setVertexDragPreview(null);
+    onMoveVertex(drag.vertexId, drag.currentXmm, drag.currentYmm);
+    return true;
+  }
+
+  function cancelVertexDrag(event?: ReactPointerEvent<SVGSVGElement>) {
+    const drag = vertexDragRef.current;
+    const svg = event?.currentTarget ?? svgRef.current;
+    if (drag && svg?.hasPointerCapture(drag.pointerId)) {
+      svg.releasePointerCapture(drag.pointerId);
+    }
+    vertexDragRef.current = null;
+    setVertexDragPreview(null);
+  }
+
   function beginTouchGesture(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.pointerType !== "touch") return;
 
@@ -2910,6 +3089,7 @@ function PlanCanvas({
     }
 
     cancelPlanItemDrag(event);
+    cancelVertexDrag(event);
 
     const pan = panRef.current;
     if (pan && event.currentTarget.hasPointerCapture(pan.pointerId)) {
@@ -3038,6 +3218,7 @@ function PlanCanvas({
             touchToolTapRef.current = null;
           }
           if (updateTouchGesture(event)) return;
+          if (updateVertexDrag(event)) return;
           if (updatePlanItemDrag(event)) return;
 
           const pan = panRef.current;
@@ -3097,6 +3278,7 @@ function PlanCanvas({
             return;
           }
 
+          if (finishVertexDrag(event)) return;
           if (finishPlanItemDrag(event)) return;
           endPan(event);
         }}
@@ -3105,6 +3287,7 @@ function PlanCanvas({
           if (touchToolTapRef.current?.pointerId === event.pointerId) {
             touchToolTapRef.current = null;
           }
+          cancelVertexDrag(event);
           cancelPlanItemDrag(event);
           endPan(event);
         }}
@@ -3112,7 +3295,16 @@ function PlanCanvas({
           if (!panRef.current) onPointerLeave();
         }}
         onKeyDown={(event) => {
+          if ((event.key === "Delete" || event.key === "Backspace") && selectedWallId) {
+            event.preventDefault();
+            onDeleteSelectedWall();
+            return;
+          }
           if (event.key !== "Escape") return;
+          if (vertexDragRef.current) {
+            cancelVertexDrag();
+            return;
+          }
           if (itemDragRef.current) {
             cancelPlanItemDrag();
             return;
@@ -3383,6 +3575,56 @@ function PlanCanvas({
                 >
                   {Math.round(wall.lengthMm)} mm
                 </text>
+              ) : null}
+              {selected && selectedWallStartVertexId && selectedWallEndVertexId ? (
+                <>
+                  <circle
+                    cx={
+                      vertexDragPreview?.vertexId === selectedWallStartVertexId
+                        ? vertexDragPreview.xMm
+                        : wall.x1Mm
+                    }
+                    cy={
+                      vertexDragPreview?.vertexId === selectedWallStartVertexId
+                        ? vertexDragPreview.yMm
+                        : wall.y1Mm
+                    }
+                    r={Math.max(70, camera.mmPerPixel * 8)}
+                    className="wall-vertex-handle"
+                    aria-label="Move wall start"
+                    onPointerDown={(event) =>
+                      beginVertexDrag(
+                        event,
+                        selectedWallStartVertexId,
+                        wall.x1Mm,
+                        wall.y1Mm,
+                      )
+                    }
+                  />
+                  <circle
+                    cx={
+                      vertexDragPreview?.vertexId === selectedWallEndVertexId
+                        ? vertexDragPreview.xMm
+                        : wall.x2Mm
+                    }
+                    cy={
+                      vertexDragPreview?.vertexId === selectedWallEndVertexId
+                        ? vertexDragPreview.yMm
+                        : wall.y2Mm
+                    }
+                    r={Math.max(70, camera.mmPerPixel * 8)}
+                    className="wall-vertex-handle"
+                    aria-label="Move wall end"
+                    onPointerDown={(event) =>
+                      beginVertexDrag(
+                        event,
+                        selectedWallEndVertexId,
+                        wall.x2Mm,
+                        wall.y2Mm,
+                      )
+                    }
+                  />
+                </>
               ) : null}
             </g>
           );
