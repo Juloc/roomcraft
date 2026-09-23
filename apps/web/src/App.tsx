@@ -1435,6 +1435,11 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     session.redo();
   }
 
+  function exitActiveTool() {
+    cancelTransient();
+    setActiveTool("select");
+  }
+
   const propertiesPanel = (
     <Panel>
                 <div className="properties__content">
@@ -2363,6 +2368,9 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     <div className="app-shell">
       <header className="app-header">
         <div className="app-brand">
+          <div className="desktop-only">
+            <IconButton icon="back" label="Back to projects" variant="ghost" onClick={onExit} />
+          </div>
           <div className="mobile-only">
             <IconButton icon="back" label="Back to projects" variant="ghost" onClick={onExit} />
           </div>
@@ -2372,35 +2380,40 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
           </div>
         </div>
 
-        <Toolbar className="desktop-header-actions">
-          <Button variant="ghost" onClick={undo} disabled={!session.canUndo}>Undo</Button>
-          <Button variant="ghost" onClick={redo} disabled={!session.canRedo}>Redo</Button>
-          <Button
-            variant="primary"
-            onClick={() => void session.saveNow()}
-            disabled={saveState === "saving" || saveState === "saved"}
-          >
-            {saveState === "saving" ? "Saving…" : "Save"}
-          </Button>
-          <Button variant="ghost" onClick={exportNativeProject}>Export project</Button>
-          <Button variant="ghost" onClick={() => projectImportRef.current?.click()}>Import project</Button>
-          <Button variant="ghost" onClick={exportSvgFloorPlan}>Export SVG</Button>
-          <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("png")}>Export PNG</Button>
-          <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("jpeg")}>Export JPEG</Button>
-          <Button variant="ghost" disabled={glbExportState === "exporting"} onClick={() => void exportGlbProject()}>
-            {glbExportState === "exporting" ? "Exporting GLB…" : "Export GLB"}
-          </Button>
+        <div className="desktop-command-bar desktop-only">
+          <div className="desktop-command-bar__history">
+            <IconButton icon="undo" label="Undo" variant="ghost" onClick={undo} disabled={!session.canUndo} />
+            <IconButton icon="redo" label="Redo" variant="ghost" onClick={redo} disabled={!session.canRedo} />
+          </div>
+
+          <SegmentedControl value={viewMode} options={VIEW_OPTIONS} onChange={changeView} ariaLabel="Editor view" />
+
           <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
             {saveStateLabel(saveState)}
           </span>
-          <SegmentedControl value={viewMode} options={VIEW_OPTIONS} onChange={changeView} ariaLabel="Editor view" />
-          {viewMode === "3d" ? (
-            <Button variant={showCeilings ? "primary" : "ghost"} onClick={() => setShowCeilings((current) => !current)}>Ceilings</Button>
-          ) : null}
-          {viewMode === "3d" && document.levels.length > 1 ? (
-            <SegmentedControl value={threeLevelScope} options={THREE_LEVEL_OPTIONS} onChange={setThreeLevelScope} ariaLabel="3D level scope" />
-          ) : null}
-        </Toolbar>
+
+          <Menu label="Project actions" className="desktop-project-menu">
+            <Button
+              variant="ghost"
+              onClick={() => void session.saveNow()}
+              disabled={saveState === "saving" || saveState === "saved"}
+            >
+              Save now
+            </Button>
+            <Button variant="ghost" onClick={() => blueprintFileRef.current?.click()}>Import blueprint</Button>
+            <Button variant="ghost" onClick={() => projectImportRef.current?.click()}>Import project</Button>
+            <Button variant="ghost" onClick={exportNativeProject}>Export project</Button>
+            <Button variant="ghost" onClick={exportSvgFloorPlan}>Export SVG</Button>
+            <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("png")}>Export PNG</Button>
+            <Button variant="ghost" disabled={rasterExportState === "exporting"} onClick={() => void exportRasterFloorPlan("jpeg")}>Export JPEG</Button>
+            <Button variant="ghost" disabled={glbExportState === "exporting"} onClick={() => void exportGlbProject()}>Export GLB</Button>
+            {viewMode === "3d" ? (
+              <Button variant="ghost" onClick={() => setShowCeilings((current) => !current)}>
+                {showCeilings ? "Hide ceilings" : "Show ceilings"}
+              </Button>
+            ) : null}
+          </Menu>
+        </div>
 
         <div className="mobile-header-actions mobile-only">
           <span className={`save-state save-state--${saveState}`} title={saveError ?? undefined}>
@@ -2435,44 +2448,79 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
             if (file) void importNativeProject(file);
           }}
         />
-      </header>      <main className="editor-layout">
+      </header>
+      </header>    <main className="editor-layout">
         <aside className="tool-rail" aria-label="Drawing tools">
-          <Button
-            variant={activeTool === "select" ? "primary" : "ghost"}
-            onClick={() => selectTool("select")}
-            title="Select and edit plan elements"
-          >
-            Select
-          </Button>
-          <Button
-            variant={activeTool === "wall" ? "primary" : "ghost"}
-            onClick={() => selectTool("wall")}
-            title="Draw connected walls"
-          >
-            Wall
-          </Button>
-          <Button
-            variant={activeTool === "door" ? "primary" : "ghost"}
-            onClick={() => selectTool("door")}
-            title="Place a 900 mm door on a wall"
-          >
-            Door
-          </Button>
-          <Button
-            variant={activeTool === "window" ? "primary" : "ghost"}
-            onClick={() => selectTool("window")}
-            title="Place a 1200 mm window on a wall"
-          >
-            Window
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={blueprintImportState === "uploading"}
-            onClick={() => blueprintFileRef.current?.click()}
-            title="Import a floor plan image and calibrate it"
-          >
-            {blueprintImportState === "uploading" ? "Uploading…" : "Blueprint"}
-          </Button>
+          <div className="tool-rail__group">
+            <Button
+              className="desktop-tool"
+              variant={activeTool === "select" ? "primary" : "ghost"}
+              onClick={() => selectTool("select")}
+              title="Select and pan"
+              aria-label="Select and pan"
+            >
+              <Icon name="select" />
+              <span>Select</span>
+            </Button>
+            <Button
+              className="desktop-tool"
+              variant={activeTool === "wall" ? "primary" : "ghost"}
+              onClick={() => selectTool("wall")}
+              title="Draw walls"
+              aria-label="Draw walls"
+            >
+              <Icon name="wall" />
+              <span>Wall</span>
+            </Button>
+          </div>
+
+          <div className="tool-rail__group">
+            <Button
+              className="desktop-tool"
+              variant={activeTool === "door" ? "primary" : "ghost"}
+              onClick={() => selectTool("door")}
+              title="Place door"
+              aria-label="Place door"
+            >
+              <Icon name="opening" />
+              <span>Door</span>
+            </Button>
+            <Button
+              className="desktop-tool"
+              variant={activeTool === "window" ? "primary" : "ghost"}
+              onClick={() => selectTool("window")}
+              title="Place window"
+              aria-label="Place window"
+            >
+              <Icon name="opening" />
+              <span>Window</span>
+            </Button>
+          </div>
+
+          <div className="tool-rail__group tool-rail__group--secondary">
+            <Button
+              className="desktop-tool"
+              variant={activeTool === "furniture" ? "primary" : "ghost"}
+              onClick={openFurnitureTool}
+              title="Furniture"
+              aria-label="Furniture"
+            >
+              <Icon name="furniture" />
+              <span>Furniture</span>
+            </Button>
+            <Button
+              className="desktop-tool"
+              variant="ghost"
+              disabled={blueprintImportState === "uploading"}
+              onClick={() => blueprintFileRef.current?.click()}
+              title="Import blueprint"
+              aria-label="Import blueprint"
+            >
+              <Icon name="blueprint" />
+              <span>Blueprint</span>
+            </Button>
+          </div>
+
           <input
             ref={blueprintFileRef}
             className="visually-hidden"
@@ -2485,13 +2533,6 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               if (file) void importBlueprint(file);
             }}
           />
-          <Button
-            variant={activeTool === "furniture" ? "primary" : "ghost"}
-            onClick={openFurnitureTool}
-            title="Place built-in or catalog furniture with exact dimensions"
-          >
-            Furniture
-          </Button>
         </aside>
 
         <section className="workspace" aria-label="Planning workspace">
@@ -2528,6 +2569,7 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               onPointerPosition={handlePlanPointerMove}
               onPointerLeave={handlePlanPointerLeave}
               onCancel={cancelTransient}
+              onExitTool={exitActiveTool}
             />
           ) : (
             <ThreeViewport
