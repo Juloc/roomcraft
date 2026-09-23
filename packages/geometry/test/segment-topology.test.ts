@@ -52,4 +52,13 @@ describe("segment topology", () => {
       ),
     ).toBeNull();
   });
+
+  it("keeps millimetre tolerance independent of segment length", () => {
+    expect(
+      segmentIntersection(
+        { start: { xMm: 0, yMm: 0 }, end: { xMm: 10000, yMm: 0 } },
+        { start: { xMm: 10010, yMm: 0 }, end: { xMm: 12000, yMm: 0 } },
+      ),
+    ).toBeNull();
+  });
 });
