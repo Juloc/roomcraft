@@ -1,4 +1,4 @@
-import { GEOMETRY_EPSILON_MM, type Point2Mm } from "./index";
+import type { Point2Mm } from "./index";
 
 export interface Segment2Mm {
   start: Point2Mm;
@@ -28,7 +28,7 @@ export type SegmentIntersection =
 export function segmentIntersection(
   a: Segment2Mm,
   b: Segment2Mm,
-  epsilon = GEOMETRY_EPSILON_MM,
+  epsilon = 0.01,
 ): SegmentIntersection {
   const ax = a.end.xMm - a.start.xMm;
   const ay = a.end.yMm - a.start.yMm;
