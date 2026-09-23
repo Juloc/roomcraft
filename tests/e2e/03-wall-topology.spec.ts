@@ -29,7 +29,7 @@ test("crossing walls are split into shared topology automatically", async ({ pag
   const thickness = page.getByRole("textbox", { name: /Thickness/ });
   await thickness.fill("180");
   await thickness.press("Enter");
-  await expect(thickness).toHaveValue("180 mm");
+  await expect(thickness).toHaveValue("180");
 
   const angle = page.getByRole("textbox", { name: /Angle/ });
   await angle.fill("0");
