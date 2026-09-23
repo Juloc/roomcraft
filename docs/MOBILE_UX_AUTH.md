@@ -125,3 +125,16 @@ Required before merge:
 - container build remains green
 
 The existing full-stack Playwright work in PR #27 owns `tests/e2e`; #32 does not edit that scope. A mobile browser scenario can be added after #27 merges.
+
+
+## Desktop editor follow-up
+
+The desktop shell uses the same interaction hierarchy as mobile instead of exposing every file/export action in the top bar.
+
+- Header: project identity, undo/redo, 2D/3D switch, save state and one project-actions menu.
+- Left rail: compact icon-first editing tools grouped by structural and content actions.
+- Canvas: active drawing mode is surfaced in a compact status pill.
+- Right inspector: persistent property surface without a nested card-on-card treatment.
+- Right-click or Escape always exits an active drawing/placement tool and returns to Select.
+- Topology diagnostics are warnings, not destructive actions. They are summarized by count and hidden by default; the user explicitly toggles diagnostic markers on the plan.
+- A topology warning means geometry crosses or overlaps without a clean shared semantic endpoint. It is never rendered as a delete-style red X.

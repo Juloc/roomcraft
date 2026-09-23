@@ -10,6 +10,7 @@
   --rc-accent: light-dark(#2f6fed, #7aa2ff);
   --rc-accent-text: #ffffff;
   --rc-danger: light-dark(#b42318, #ff8a80);
+  --rc-warning: light-dark(#b54708, #fbbf24);
   --rc-radius-sm: 6px;
   --rc-radius-md: 10px;
   --rc-space-1: 4px;
