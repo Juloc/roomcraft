@@ -80,16 +80,23 @@ Definition of done:
 - wall/segment selection
 - visible dimension label
 - edit exact length via shared `LengthField`
-- `MoveVertex` command
-- sensible behavior for connected walls
-- angle display/edit where useful
+- `MoveVertex` command ✅
+- fixed start/end endpoint choice ✅
+- exact angle display/edit ✅
+- exact wall thickness edit ✅
+- direct endpoint drag ✅
+- topology-safe crossing/T-junction insertion ✅
+- automatic opening reassignment when walls split ✅
+- overlap/zero-length prevention ✅
+- sensible behavior for connected walls ✅
 
 ### 1.5 Selection model 🚧
 - stable selected RoomCraft IDs
 - wall/opening/room/object selection
 - shared 2D/3D selection
 - hover separate from selection
-- delete/duplicate via commands
+- delete via commands ✅
+- duplicate via commands 🚧
 
 ### 1.6 Pan / zoom / viewport 🚧
 - infinite-feeling 2D canvas
