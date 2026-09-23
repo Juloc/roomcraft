@@ -62,3 +62,54 @@ jobs:
         run: bash scripts/smoke-model-assets.sh
       - name: Catalog smoke test
         run: bash scripts/smoke-catalog.sh
+
+  e2e:
+    needs: [frontend, backend]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6-alpine3.23
+        env:
+          POSTGRES_DB: roomcraft
+          POSTGRES_USER: roomcraft
+          POSTGRES_PASSWORD: roomcraft
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U roomcraft -d roomcraft"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: true
+      ASPNETCORE_ENVIRONMENT: CI
+      ConnectionStrings__RoomCraft: Host=127.0.0.1;Port=5432;Database=roomcraft;Username=roomcraft;Password=roomcraft
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.x
+          package-manager-cache: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Install dependencies
+        run: npm install
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Restore backend
+        run: dotnet restore RoomCraft.slnx
+      - name: Build backend
+        run: dotnet build RoomCraft.slnx --configuration Release --no-restore
+      - name: Browser acceptance
+        run: bash scripts/run-e2e.sh
+      - name: Upload Playwright report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
