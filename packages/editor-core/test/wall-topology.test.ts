@@ -154,6 +154,61 @@ describe("topology-safe wall editing", () => {
     }))).toThrow(/through opening/);
   });
 
+
+  it("preserves a room finish when a boundary split does not change room geometry", () => {
+    const document = createEmptyProject("project_finish", "Finish");
+    const baseLevel = document.levels[0]!;
+    const level = {
+      ...baseLevel,
+      vertices: [
+        { id: "v_a", xMm: 0, yMm: 0 },
+        { id: "v_b", xMm: 4000, yMm: 0 },
+        { id: "v_c", xMm: 4000, yMm: 3000 },
+        { id: "v_d", xMm: 0, yMm: 3000 },
+      ],
+      walls: [
+        { id: "w_ab", startVertexId: "v_a", endVertexId: "v_b", thicknessMm: 120, heightMm: null, leftMaterialId: null, rightMaterialId: null },
+        { id: "w_bc", startVertexId: "v_b", endVertexId: "v_c", thicknessMm: 120, heightMm: null, leftMaterialId: null, rightMaterialId: null },
+        { id: "w_cd", startVertexId: "v_c", endVertexId: "v_d", thicknessMm: 120, heightMm: null, leftMaterialId: null, rightMaterialId: null },
+        { id: "w_da", startVertexId: "v_d", endVertexId: "v_a", thicknessMm: 120, heightMm: null, leftMaterialId: null, rightMaterialId: null },
+      ],
+    };
+    const beforeFace = analyzePlanarFaces(level.vertices, level.walls).faces[0]!;
+    const history = new CommandHistory({
+      ...document,
+      levels: [{
+        ...level,
+        roomFinishes: [{
+          roomKey: beforeFace.key,
+          floorMaterialId: "material:oak",
+          ceilingMaterialId: null,
+        }],
+      }],
+    });
+
+    history.execute(new InsertWallWithTopologyCommand({
+      levelId: "level_ground",
+      wallId: "wall_t_outside",
+      start: { kind: "new", vertex: { id: "v_outside", xMm: 2000, yMm: -1000 } },
+      end: { kind: "new", vertex: { id: "v_join", xMm: 2000, yMm: 0 } },
+      thicknessMm: 120,
+      createId: ids(),
+    }));
+
+    const afterLevel = history.document.levels[0]!;
+    const afterFace = analyzePlanarFaces(afterLevel.vertices, afterLevel.walls).faces[0]!;
+    expect(afterFace.areaMm2).toBe(beforeFace.areaMm2);
+    expect(afterFace.key).not.toBe(beforeFace.key);
+    expect(afterLevel.roomFinishes).toEqual([{
+      roomKey: afterFace.key,
+      floorMaterialId: "material:oak",
+      ceilingMaterialId: null,
+    }]);
+
+    history.undo();
+    expect(history.document.levels[0]!.roomFinishes[0]?.roomKey).toBe(beforeFace.key);
+  });
+
   it("rejects collinear overlap and duplicate geometry", () => {
     const history = new CommandHistory(projectWithHorizontalWall());
     expect(() => history.execute(new InsertWallWithTopologyCommand({
