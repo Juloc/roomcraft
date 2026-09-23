@@ -2657,6 +2657,7 @@ interface PlanCanvasProps {
   onPointerPosition(point: PlanPoint): void;
   onPointerLeave(): void;
   onCancel(): void;
+  onExitTool(): void;
 }
 
 function PlanCanvas({
@@ -2691,6 +2692,7 @@ function PlanCanvas({
   onPointerPosition,
   onPointerLeave,
   onCancel,
+  onExitTool,
 }: PlanCanvasProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const panRef = useRef<{
@@ -2730,6 +2732,7 @@ function PlanCanvas({
     yMm: number;
   } | null>(null);
   const [camera, setCamera] = useState<PlanCamera2D>({ ...DEFAULT_PLAN_CAMERA });
+  const [showTopologyIssues, setShowTopologyIssues] = useState(false);
   const [viewportSize, setViewportSize] = useState<ViewportSizePx>({
     width: 1040,
     height: 840,
@@ -2998,6 +3001,11 @@ function PlanCanvas({
         role="application"
         aria-label="2D floor plan editor"
         tabIndex={0}
+        onContextMenu={(event) => {
+          if (activeTool === "select") return;
+          event.preventDefault();
+          onExitTool();
+        }}
         onWheel={(event) => {
           event.preventDefault();
           const anchor = clientToPlan(
@@ -3108,7 +3116,8 @@ function PlanCanvas({
             cancelPlanItemDrag();
             return;
           }
-          onCancel();
+          if (activeTool === "select") onCancel();
+          else onExitTool();
         }}
       >
         <defs>
@@ -3451,28 +3460,47 @@ function PlanCanvas({
             ) : null}
           </g>
         ) : null}
-        {topologyIssues.map((issue, index) => (
-          <g
-            key={`${issue.type}:${issue.edgeIds.join(":")}:${index}`}
-            className="topology-issue"
-            pointerEvents="none"
-          >
-            <circle cx={issue.point.xMm} cy={issue.point.yMm} r={105} />
-            <line
-              x1={issue.point.xMm - 55}
-              y1={issue.point.yMm - 55}
-              x2={issue.point.xMm + 55}
-              y2={issue.point.yMm + 55}
-            />
-            <line
-              x1={issue.point.xMm + 55}
-              y1={issue.point.yMm - 55}
-              x2={issue.point.xMm - 55}
-              y2={issue.point.yMm + 55}
-            />
-          </g>
-        ))}
+        {showTopologyIssues
+          ? topologyIssues.map((issue, index) => (
+              <g
+                key={`${issue.type}:${issue.edgeIds.join(":")}:${index}`}
+                className="topology-issue"
+                pointerEvents="none"
+              >
+                <circle cx={issue.point.xMm} cy={issue.point.yMm} r={92} />
+                <text
+                  x={issue.point.xMm}
+                  y={issue.point.yMm + 6}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                >
+                  !
+                </text>
+              </g>
+            ))
+          : null}
       </svg>
+
+      <div className="plan-viewport__status">
+        {activeTool !== "select" ? (
+          <div className="canvas-status-pill">
+            <strong>{toolTitle("2d", activeTool, draftStart !== null)}</strong>
+            <span>Right-click or Esc to finish</span>
+          </div>
+        ) : null}
+        {topologyIssues.length > 0 ? (
+          <button
+            type="button"
+            className={`topology-toggle${showTopologyIssues ? " topology-toggle--active" : ""}`}
+            aria-pressed={showTopologyIssues}
+            onClick={() => setShowTopologyIssues((current) => !current)}
+            title="Wall crossings or overlaps that are not connected as clean shared endpoints"
+          >
+            <span className="topology-toggle__icon">!</span>
+            <span>{topologyIssues.length} topology {topologyIssues.length === 1 ? "warning" : "warnings"}</span>
+          </button>
+        ) : null}
+      </div>
 
       <div className="plan-viewport__controls">
         {ghostProjection && ghostLabel ? (
@@ -3676,8 +3704,8 @@ function toolHelp(viewMode: ViewMode, activeTool: EditorTool, hasDraft: boolean)
   }
   if (activeTool === "wall") {
     return hasDraft
-      ? "Choose the next endpoint. Escape cancels the chain."
-      : "Choose the first endpoint. Points snap to vertices and the grid.";
+      ? "Choose the next endpoint. Right-click or Escape finishes drawing and returns to Select."
+      : "Choose the first endpoint. Points snap to vertices and the grid. Right-click exits Wall mode.";
   }
   if (activeTool === "door") return "Click near a wall to place a 900 × 2100 mm door.";
   if (activeTool === "window") return "Click near a wall to place a 1200 × 1200 mm window with a 900 mm sill.";
