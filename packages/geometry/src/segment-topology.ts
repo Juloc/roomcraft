@@ -41,11 +41,15 @@ export function segmentIntersection(
     return null;
   }
 
+  const aLength = Math.sqrt(aLengthSquared);
+  const bLength = Math.sqrt(bLengthSquared);
+  const aParameterTolerance = epsilon / aLength;
+  const bParameterTolerance = epsilon / bLength;
   const cross = ax * by - ay * bx;
   const qx = b.start.xMm - a.start.xMm;
   const qy = b.start.yMm - a.start.yMm;
   const qCrossA = qx * ay - qy * ax;
-  const tolerance = epsilon * Math.max(1, Math.sqrt(aLengthSquared), Math.sqrt(bLengthSquared));
+  const tolerance = epsilon * Math.max(1, aLength, bLength);
 
   if (Math.abs(cross) <= tolerance) {
     if (Math.abs(qCrossA) > tolerance) return null;
@@ -55,8 +59,8 @@ export function segmentIntersection(
     const overlapStart = Math.max(0, Math.min(aStartT, aEndT));
     const overlapEnd = Math.min(1, Math.max(aStartT, aEndT));
 
-    if (overlapEnd < overlapStart - epsilon) return null;
-    if (Math.abs(overlapEnd - overlapStart) <= epsilon) {
+    if (overlapEnd < overlapStart - aParameterTolerance) return null;
+    if (Math.abs(overlapEnd - overlapStart) <= aParameterTolerance) {
       const aT = clamp01((overlapStart + overlapEnd) / 2);
       const point = pointAlong(a, aT);
       return {
@@ -80,7 +84,12 @@ export function segmentIntersection(
 
   const aT = (qx * by - qy * bx) / cross;
   const bT = (qx * ay - qy * ax) / cross;
-  if (aT < -epsilon || aT > 1 + epsilon || bT < -epsilon || bT > 1 + epsilon) {
+  if (
+    aT < -aParameterTolerance ||
+    aT > 1 + aParameterTolerance ||
+    bT < -bParameterTolerance ||
+    bT > 1 + bParameterTolerance
+  ) {
     return null;
   }
 
