@@ -8,6 +8,7 @@ import {
   type Wall,
 } from "@roomcraft/document";
 import {
+  analyzePlanarFaces,
   distanceMm,
   isInteriorParameter,
   pointAlong,
@@ -292,11 +293,15 @@ export class InsertWallWithTopologyCommand implements EditorCommand {
     const referencedVertexIds = new Set(
       nextWalls.flatMap((wall) => [wall.startVertexId, wall.endVertexId]),
     );
-    const nextLevel: Level = {
+    const geometryLevel: Level = {
       ...level,
       vertices: vertices.filter((vertex) => referencedVertexIds.has(vertex.id)),
       walls: nextWalls,
       openings: nextOpenings,
+    };
+    const nextLevel: Level = {
+      ...geometryLevel,
+      roomFinishes: remapUnchangedRoomFinishes(level, geometryLevel),
     };
     const nextDocument = replaceLevel(document, nextLevel);
     validateProjectDocument(nextDocument);
@@ -414,6 +419,7 @@ interface LevelGeometrySnapshot {
   vertices: Vertex[];
   walls: Wall[];
   openings: Opening[];
+  roomFinishes: Level["roomFinishes"];
 }
 
 class RestoreLevelGeometryCommand implements EditorCommand {
@@ -432,6 +438,7 @@ class RestoreLevelGeometryCommand implements EditorCommand {
       vertices: this.snapshot.vertices,
       walls: this.snapshot.walls,
       openings: this.snapshot.openings,
+      roomFinishes: this.snapshot.roomFinishes,
     });
     validateProjectDocument(nextDocument);
     return {
@@ -446,6 +453,7 @@ function geometrySnapshot(level: Level): LevelGeometrySnapshot {
     vertices: level.vertices.map((vertex) => ({ ...vertex })),
     walls: level.walls.map((wall) => ({ ...wall })),
     openings: level.openings.map((opening) => ({ ...opening })),
+    roomFinishes: level.roomFinishes.map((finish) => ({ ...finish })),
   };
 }
 
@@ -492,6 +500,76 @@ function nearestVertex(
     }
   }
   return best?.vertex ?? null;
+}
+
+
+function remapUnchangedRoomFinishes(
+  before: Level,
+  after: Level,
+): Level["roomFinishes"] {
+  if (before.roomFinishes.length === 0) return before.roomFinishes;
+
+  const beforeAnalysis = analyzePlanarFaces(before.vertices, before.walls);
+  const afterAnalysis = analyzePlanarFaces(after.vertices, after.walls);
+  if (beforeAnalysis.issues.length > 0 || afterAnalysis.issues.length > 0) {
+    return before.roomFinishes;
+  }
+
+  const beforeFaceByKey = new Map(
+    beforeAnalysis.faces.map((face) => [face.key, face] as const),
+  );
+  const afterFaceByShape = new Map(
+    afterAnalysis.faces.map((face) => [faceShapeKey(face.points), face] as const),
+  );
+
+  return before.roomFinishes.map((finish) => {
+    const beforeFace = beforeFaceByKey.get(finish.roomKey);
+    if (!beforeFace) return finish;
+
+    const matchingFace = afterFaceByShape.get(faceShapeKey(beforeFace.points));
+    if (!matchingFace || matchingFace.key === finish.roomKey) return finish;
+    return { ...finish, roomKey: matchingFace.key };
+  });
+}
+
+function faceShapeKey(points: readonly Point2Mm[]): string {
+  if (points.length < 3) {
+    return points.map((point) => pointToken(point)).join("|");
+  }
+
+  const simplified = points.filter((point, index) => {
+    const previous = points[(index - 1 + points.length) % points.length]!;
+    const next = points[(index + 1) % points.length]!;
+    const cross =
+      (point.xMm - previous.xMm) * (next.yMm - point.yMm) -
+      (point.yMm - previous.yMm) * (next.xMm - point.xMm);
+    if (Math.abs(cross) > 1e-8) return true;
+
+    const dot =
+      (point.xMm - previous.xMm) * (point.xMm - next.xMm) +
+      (point.yMm - previous.yMm) * (point.yMm - next.yMm);
+    return dot > 0;
+  });
+
+  const tokens = simplified.map(pointToken);
+  const reversed = [...tokens].reverse();
+  return canonicalCycle(tokens) < canonicalCycle(reversed)
+    ? canonicalCycle(tokens)
+    : canonicalCycle(reversed);
+}
+
+function canonicalCycle(tokens: readonly string[]): string {
+  if (tokens.length === 0) return "";
+  let best = tokens.join("|");
+  for (let offset = 1; offset < tokens.length; offset += 1) {
+    const rotated = [...tokens.slice(offset), ...tokens.slice(0, offset)].join("|");
+    if (rotated < best) best = rotated;
+  }
+  return best;
+}
+
+function pointToken(point: Point2Mm): string {
+  return `${Math.round(point.xMm * 1000) / 1000},${Math.round(point.yMm * 1000) / 1000}`;
 }
 
 function normalizeT(value: number): number {
