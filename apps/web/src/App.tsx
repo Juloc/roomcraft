@@ -18,16 +18,20 @@ import {
   AddObjectCommand,
   AddOpeningCommand,
   AddParametricAssetCommand,
-  AddWallCommand,
   CalibrateBlueprintCommand,
   EMPTY_SELECTION,
   MoveBlueprintLayerCommand,
+  MoveVertexCommand,
   RemoveBlueprintCommand,
   RemoveLevelCommand,
   RemoveObjectCommand,
   SetRoomSurfaceMaterialsCommand,
   SetWallLengthCommand,
   SetWallMaterialsCommand,
+  InsertWallWithTopologyCommand,
+  RemoveWallByIdCommand,
+  SetWallAngleCommand,
+  SetWallThicknessCommand,
   UpdateBlueprintCommand,
   UpdateLevelCommand,
   UpdateObjectCommand,
@@ -288,6 +292,7 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   const [blueprintImportError, setBlueprintImportError] = useState<string | null>(null);
   const [calibrationDraft, setCalibrationDraft] = useState<BlueprintCalibrationDraft | null>(null);
   const [wallDraft, setWallDraft] = useState<WallDraft | null>(null);
+  const [wallEditAnchor, setWallEditAnchor] = useState<"start" | "end">("start");
   const [hoverSnap, setHoverSnap] = useState<PlanSnapResult | null>(null);
   const [openingHover, setOpeningHover] = useState<OpeningWallPlacement | null>(null);
 
@@ -381,6 +386,20 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     selectedWallId === null
       ? null
       : projection.walls.find((wall) => wall.id === selectedWallId) ?? null;
+  const selectedWallRecord =
+    selectedWallId === null
+      ? null
+      : level.walls.find((wall) => wall.id === selectedWallId) ?? null;
+  const selectedWallAngleDeg = selectedWall
+    ? normalizeDegrees(
+        (Math.atan2(
+          selectedWall.y2Mm - selectedWall.y1Mm,
+          selectedWall.x2Mm - selectedWall.x1Mm,
+        ) *
+          180) /
+          Math.PI,
+      )
+    : null;
   const selectedRoomKey =
     selection.primary?.kind === "room" &&
     projection.rooms.some((room) => room.key === selection.primary?.id)
@@ -903,12 +922,13 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     const start = endpointFromSnap(wallDraft.start);
     const end = endpointFromSnap(snapped);
     session.execute(
-      new AddWallCommand({
+      new InsertWallWithTopologyCommand({
         levelId,
         wallId: createEntityId("wall"),
         start,
         end,
         thicknessMm: 120,
+        createId: (prefix) => createEntityId(prefix),
       }),
     );
 
@@ -1295,9 +1315,49 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
         levelId,
         wallId: selectedWallId,
         lengthMm,
-        anchor: "start",
+        anchor: wallEditAnchor,
       }),
     );
+  }
+
+  function setSelectedWallAngle(angleDeg: number) {
+    if (!selectedWallId) return;
+    session.execute(
+      new SetWallAngleCommand({
+        levelId,
+        wallId: selectedWallId,
+        angleDeg,
+        anchor: wallEditAnchor,
+      }),
+    );
+  }
+
+  function setSelectedWallThickness(thicknessMm: number) {
+    if (!selectedWallId) return;
+    session.execute(
+      new SetWallThicknessCommand({
+        levelId,
+        wallId: selectedWallId,
+        thicknessMm,
+      }),
+    );
+  }
+
+  function moveWallVertex(vertexId: string, xMm: number, yMm: number) {
+    session.execute(
+      new MoveVertexCommand({
+        levelId,
+        vertexId,
+        xMm: Math.round(xMm),
+        yMm: Math.round(yMm),
+      }),
+    );
+  }
+
+  function removeSelectedWall() {
+    if (!selectedWallId) return;
+    session.execute(new RemoveWallByIdCommand(levelId, selectedWallId));
+    setSelection(EMPTY_SELECTION);
   }
 
   function exportNativeProject() {
@@ -1817,13 +1877,44 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
                   {selectedWall ? (
                     <div className="selection-properties">
                       <span className="eyebrow">Selected wall</span>
+                      <SegmentedControl
+                        value={wallEditAnchor}
+                        options={[
+                          { value: "start", label: "Fix start" },
+                          { value: "end", label: "Fix end" },
+                        ]}
+                        onChange={setWallEditAnchor}
+                        ariaLabel="Fixed wall endpoint"
+                      />
                       <LengthField
                         label="Length"
                         valueMm={Math.round(selectedWall.lengthMm)}
                         minMm={100}
-                        helpText="The start vertex stays fixed; connected walls at the moved endpoint follow it."
+                        helpText={`The ${wallEditAnchor} endpoint stays fixed. Connected walls at the moved endpoint follow it.`}
                         onCommit={setSelectedWallLength}
                       />
+                      <NumberField
+                        label="Angle"
+                        value={selectedWallAngleDeg ?? 0}
+                        step={1}
+                        suffix="°"
+                        onCommit={setSelectedWallAngle}
+                      />
+                      <NumberField
+                        label="Thickness"
+                        value={selectedWall.thicknessMm}
+                        min={40}
+                        max={1000}
+                        step={10}
+                        suffix="mm"
+                        onCommit={(value) => setSelectedWallThickness(Math.round(value))}
+                      />
+                      <span className="property-hint">
+                        Drag either endpoint handle in the plan for direct vertex editing.
+                      </span>
+                      <Button variant="ghost" onClick={removeSelectedWall}>
+                        Delete wall
+                      </Button>
                       <SelectField
                         label="Left surface"
                         value={selectedWall.leftMaterialId ?? ""}
@@ -2550,6 +2641,8 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               ghostLabel={ghostLevel?.name ?? null}
               activeTool={activeTool}
               selectedWallId={selectedWallId}
+              selectedWallStartVertexId={selectedWallRecord?.startVertexId ?? null}
+              selectedWallEndVertexId={selectedWallRecord?.endVertexId ?? null}
               selectedRoomKey={selectedRoomKey}
               selectedBlueprintId={selectedBlueprintId}
               selectedObjectId={selectedObjectId}
@@ -2561,6 +2654,8 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               openingHover={openingHover}
               onPoint={handlePlanPoint}
               onSelectWall={selectWall}
+              onMoveVertex={moveWallVertex}
+              onDeleteSelectedWall={removeSelectedWall}
               onSelectRoom={selectRoom}
               onSelectBlueprint={selectBlueprint}
               onMoveBlueprint={moveBlueprint}
