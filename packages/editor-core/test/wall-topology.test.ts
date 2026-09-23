@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createEmptyProject, type ProjectDocument } from "@roomcraft/document";
-import { derivePlanarFaces } from "@roomcraft/geometry";
+import { analyzePlanarFaces } from "@roomcraft/geometry";
 import { AddOpeningCommand, CommandHistory } from "../src/commands";
 import {
   InsertWallWithTopologyCommand,
@@ -66,8 +66,8 @@ describe("topology-safe wall editing", () => {
       ),
     ).toHaveLength(4);
 
-    const graph = derivePlanarFaces(level);
-    expect(graph.issues.filter((issue) => issue.type === "crossing")).toHaveLength(0);
+    const graph = analyzePlanarFaces(level.vertices, level.walls);
+    expect(graph.issues.filter((issue) => issue.type === "unsplit-intersection")).toHaveLength(0);
 
     history.undo();
     expect(history.document.levels[0]!.walls).toHaveLength(1);
@@ -92,7 +92,7 @@ describe("topology-safe wall editing", () => {
     expect(level.walls.filter(
       (wall) => wall.startVertexId === "v_join" || wall.endVertexId === "v_join",
     )).toHaveLength(3);
-    expect(derivePlanarFaces(level).issues.filter((issue) => issue.type === "crossing")).toHaveLength(0);
+    expect(analyzePlanarFaces(level.vertices, level.walls).issues.filter((issue) => issue.type === "unsplit-intersection")).toHaveLength(0);
   });
 
   it("moves an opening to the correct replacement segment when its wall is split", () => {
