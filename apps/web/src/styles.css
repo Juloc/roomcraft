@@ -1141,10 +1141,10 @@ body {
   fill: color-mix(in srgb, var(--rc-accent) 24%, var(--rc-surface));
 }
 
-.selection-properties > .rc-segmented-control {
+.selection-properties > .rc-segmented {
   width: 100%;
 }
 
-.selection-properties > .rc-segmented-control .rc-segmented-control__button {
+.selection-properties > .rc-segmented .rc-segmented__item {
   flex: 1 1 0;
 }
