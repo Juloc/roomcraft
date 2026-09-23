@@ -2449,7 +2449,8 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
           }}
         />
       </header>
-      </header>    <main className="editor-layout">
+
+      <main className="editor-layout">
         <aside className="tool-rail" aria-label="Drawing tools">
           <div className="tool-rail__group">
             <Button
