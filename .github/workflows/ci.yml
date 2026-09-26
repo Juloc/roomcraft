@@ -17,8 +17,10 @@ jobs:
         with:
           node-version: 22.x
           package-manager-cache: false
+      - name: Pin npm
+        run: npm install --global npm@12.1.0
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Typecheck
         run: npm run typecheck
       - name: Unit tests
@@ -93,8 +95,10 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      - name: Pin npm
+        run: npm install --global npm@12.1.0
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Restore backend

@@ -18,10 +18,12 @@ import {
   AddObjectCommand,
   AddOpeningCommand,
   AddParametricAssetCommand,
+  BatchCommand,
   CalibrateBlueprintCommand,
   EMPTY_SELECTION,
   MoveBlueprintLayerCommand,
   MoveVertexCommand,
+  MoveWallCommand,
   RemoveBlueprintCommand,
   RemoveLevelCommand,
   RemoveObjectCommand,
@@ -41,12 +43,18 @@ import {
   fitPlanCamera,
   panPlanCamera,
   planViewBox,
+  isSelected,
+  selectMany,
   selectOnly,
+  selectionIds,
+  toggleSelection,
   snapObjectPosition,
   snapOpeningToWall,
   zoomPlanCameraAt,
   snapPlanPoint,
+  type EditorCommand,
   type EditorSelection,
+  type SelectionTarget,
   type OpeningWallPlacement,
   type PlanCamera2D,
   type PlanSnapResult,
@@ -78,6 +86,7 @@ import { projectLevel2D } from "@roomcraft/render-2d";
 import {
   inspectGlbFile,
   RoomSceneRenderer,
+  type RoomSceneHit,
   type RoomSceneLevelScope,
   type RuntimeModelAsset,
 } from "@roomcraft/render-3d";
@@ -101,6 +110,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -277,6 +287,7 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   const catalogRequestRef = useRef(0);
   const catalogLoadingRef = useRef(new Set<string>());
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
+  const [hoveredTarget, setHoveredTarget] = useState<SelectionTarget | null>(null);
   const blueprintFileRef = useRef<HTMLInputElement | null>(null);
   const modelFileRef = useRef<HTMLInputElement | null>(null);
   const projectImportRef = useRef<HTMLInputElement | null>(null);
@@ -476,6 +487,15 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
         [parametricAssetId(definition.id), definition.name] as const,
     ),
   ]);
+  const duplicableSelectionCount = selection.items.filter(
+    (target) => target.kind === "object" || target.kind === "blueprint",
+  ).length;
+  const deletableSelectionCount = selection.items.filter(
+    (target) =>
+      target.kind === "wall" ||
+      target.kind === "object" ||
+      target.kind === "blueprint",
+  ).length;
 
   function resolveFurnitureDefinition(
     assetId: string,
@@ -1049,8 +1069,14 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     }
   }
 
-  function selectBlueprint(blueprintId: string) {
-    setSelection(selectOnly({ kind: "blueprint", id: blueprintId }));
+  function updateSelectionTarget(target: SelectionTarget, additive = false) {
+    setSelection((current) =>
+      additive ? toggleSelection(current, target) : selectOnly(target),
+    );
+  }
+
+  function selectBlueprint(blueprintId: string, additive = false) {
+    updateSelectionTarget({ kind: "blueprint", id: blueprintId }, additive);
   }
 
   function startBlueprintCalibration() {
@@ -1152,8 +1178,8 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     );
   }
 
-  function selectObject(objectId: string) {
-    setSelection(selectOnly({ kind: "object", id: objectId }));
+  function selectObject(objectId: string, additive = false) {
+    updateSelectionTarget({ kind: "object", id: objectId }, additive);
     const object = currentLevel()?.objects.find(
       (candidate) => candidate.id === objectId,
     );
@@ -1205,6 +1231,10 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   }
 
   function duplicateSelectedObject() {
+    if (selection.items.length > 1) {
+      duplicateSelection();
+      return;
+    }
     const current = currentLevel();
     if (!current || !selectedObject) return;
 
@@ -1239,16 +1269,21 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   }
 
   function removeSelectedObject() {
+    if (selection.items.length > 1) {
+      deleteSelection();
+      return;
+    }
     if (!selectedObjectId) return;
     session.execute(new RemoveObjectCommand(levelId, selectedObjectId));
     setSelection(EMPTY_SELECTION);
   }
 
-    function cancelTransient() {
+  function cancelTransient() {
     setWallDraft(null);
     setHoverSnap(null);
     setOpeningHover(null);
     setCalibrationDraft(null);
+    setHoveredTarget(null);
   }
 
   function selectTool(tool: EditorTool) {
@@ -1264,12 +1299,26 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     }
   }
 
-  function selectWall(wallId: string) {
-    setSelection(selectOnly({ kind: "wall", id: wallId }));
+  function selectWall(wallId: string, additive = false) {
+    updateSelectionTarget({ kind: "wall", id: wallId }, additive);
   }
 
-  function selectRoom(roomKey: string) {
-    setSelection(selectOnly({ kind: "room", id: roomKey }));
+  function selectRoom(roomKey: string, additive = false) {
+    updateSelectionTarget({ kind: "room", id: roomKey }, additive);
+  }
+
+  function selectFromThree(hit: RoomSceneHit | null, additive: boolean) {
+    if (!hit) {
+      if (!additive) clearSelection();
+      return;
+    }
+    updateSelectionTarget({ kind: hit.kind, id: hit.id }, additive);
+    if (hit.kind === "object") {
+      const object = currentLevel()?.objects.find(
+        (candidate) => candidate.id === hit.id,
+      );
+      if (object) void loadCatalogDefinition(object.assetId);
+    }
   }
 
   function setSelectedWallMaterial(
@@ -1354,10 +1403,126 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     );
   }
 
+  function moveWall(wallId: string, deltaXmm: number, deltaYmm: number) {
+    if (deltaXmm === 0 && deltaYmm === 0) return;
+    session.execute(
+      new MoveWallCommand({
+        levelId,
+        wallId,
+        deltaXmm: Math.round(deltaXmm),
+        deltaYmm: Math.round(deltaYmm),
+      }),
+    );
+  }
+
   function removeSelectedWall() {
+    if (selection.items.length > 1) {
+      deleteSelection();
+      return;
+    }
     if (!selectedWallId) return;
     session.execute(new RemoveWallByIdCommand(levelId, selectedWallId));
     setSelection(EMPTY_SELECTION);
+  }
+
+  function duplicateSelection() {
+    const current = currentLevel();
+    if (!current) return;
+
+    const offsetMm = Math.max(document.settings.gridSizeMm * 2, 200);
+    const commands: EditorCommand[] = [];
+    const nextTargets: SelectionTarget[] = [];
+
+    for (const target of selection.items) {
+      if (target.kind === "object") {
+        const object = current.objects.find((candidate) => candidate.id === target.id);
+        if (!object) continue;
+        const id = createEntityId("object");
+        commands.push(
+          new AddObjectCommand({
+            levelId,
+            object: {
+              ...object,
+              id,
+              xMm: object.xMm + offsetMm,
+              yMm: object.yMm + offsetMm,
+              locked: false,
+            },
+          }),
+        );
+        nextTargets.push({ kind: "object", id });
+      } else if (target.kind === "blueprint") {
+        const blueprint = current.blueprints.find(
+          (candidate) => candidate.id === target.id,
+        );
+        if (!blueprint) continue;
+        const id = createEntityId("blueprint");
+        commands.push(
+          new AddBlueprintCommand({
+            levelId,
+            blueprint: {
+              ...blueprint,
+              id,
+              originXmm: blueprint.originXmm + offsetMm,
+              originYmm: blueprint.originYmm + offsetMm,
+              locked: false,
+            },
+          }),
+        );
+        nextTargets.push({ kind: "blueprint", id });
+      }
+    }
+
+    if (commands.length === 0) return;
+    session.execute(
+      commands.length === 1 ? commands[0]! : new BatchCommand(commands),
+    );
+    setSelection(selectMany(nextTargets));
+  }
+
+  function deleteSelection() {
+    const commands: EditorCommand[] = [];
+    for (const target of selection.items) {
+      if (target.kind === "wall") {
+        commands.push(new RemoveWallByIdCommand(levelId, target.id));
+      } else if (target.kind === "object") {
+        commands.push(new RemoveObjectCommand(levelId, target.id));
+      } else if (target.kind === "blueprint") {
+        commands.push(new RemoveBlueprintCommand(levelId, target.id));
+      }
+    }
+
+    if (commands.length === 0) return;
+    session.execute(
+      commands.length === 1 ? commands[0]! : new BatchCommand(commands),
+    );
+    setSelection(EMPTY_SELECTION);
+  }
+
+  function handleEditorKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.defaultPrevented) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      (target instanceof HTMLElement && target.isContentEditable)
+    ) {
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
+      if (duplicableSelectionCount === 0) return;
+      event.preventDefault();
+      duplicateSelection();
+      return;
+    }
+
+    if (event.key === "Delete" || event.key === "Backspace") {
+      if (deletableSelectionCount === 0) return;
+      event.preventDefault();
+      deleteSelection();
+    }
   }
 
   function exportNativeProject() {
@@ -1836,6 +2001,35 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
                     </div>
                   ) : null}
     
+                  {selection.items.length > 1 ? (
+                    <div className="selection-summary" aria-label="Multiple selection">
+                      <span className="eyebrow">Selection</span>
+                      <strong>{selection.items.length} items selected</strong>
+                      <span className="property-hint">
+                        Shift-click adds or removes items. The last selected item remains the primary editor target.
+                      </span>
+                      <div className="selection-actions">
+                        <Button
+                          variant="secondary"
+                          disabled={duplicableSelectionCount === 0}
+                          onClick={duplicateSelection}
+                        >
+                          Duplicate {duplicableSelectionCount > 0 ? `(${duplicableSelectionCount})` : ""}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={deletableSelectionCount === 0}
+                          onClick={deleteSelection}
+                        >
+                          Delete {deletableSelectionCount > 0 ? `(${deletableSelectionCount})` : ""}
+                        </Button>
+                        <Button variant="ghost" onClick={clearSelection}>
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="blueprint-layers">
                     <span className="eyebrow">Blueprint layers</span>
                     <LayerList
@@ -2456,7 +2650,7 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   );
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" onKeyDownCapture={handleEditorKeyDown}>
       <header className="app-header">
         <div className="app-brand">
           <div className="desktop-only">
@@ -2640,12 +2834,11 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               ghostProjection={ghostProjection}
               ghostLabel={ghostLevel?.name ?? null}
               activeTool={activeTool}
+              selection={selection}
+              hoveredTarget={hoveredTarget}
               selectedWallId={selectedWallId}
               selectedWallStartVertexId={selectedWallRecord?.startVertexId ?? null}
               selectedWallEndVertexId={selectedWallRecord?.endVertexId ?? null}
-              selectedRoomKey={selectedRoomKey}
-              selectedBlueprintId={selectedBlueprintId}
-              selectedObjectId={selectedObjectId}
               calibrationDraft={calibrationDraft}
               draftStart={wallDraft?.start.point ?? null}
               draftEnd={wallDraft ? hoverSnap?.point ?? wallDraft.start.point : null}
@@ -2654,13 +2847,14 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               openingHover={openingHover}
               onPoint={handlePlanPoint}
               onSelectWall={selectWall}
+              onMoveWall={moveWall}
               onMoveVertex={moveWallVertex}
-              onDeleteSelectedWall={removeSelectedWall}
               onSelectRoom={selectRoom}
               onSelectBlueprint={selectBlueprint}
               onMoveBlueprint={moveBlueprint}
               onSelectObject={selectObject}
               onMoveObject={moveObject}
+              onHoverTarget={setHoveredTarget}
               onClearSelection={clearSelection}
               onPointerPosition={handlePlanPointerMove}
               onPointerLeave={handlePlanPointerLeave}
@@ -2672,9 +2866,14 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               document={document}
               levelId={levelId}
               levelScope={threeLevelScope}
-              selectedId={selectedObjectId ?? selectedWallId ?? selectedRoomKey}
+              selection={selection}
+              hoveredTarget={hoveredTarget}
               modelAssets={runtimeModelAssets}
               showCeilings={showCeilings}
+              onSelect={selectFromThree}
+              onHover={(hit) =>
+                setHoveredTarget(hit ? { kind: hit.kind, id: hit.id } : null)
+              }
             />
           )}
         </section>
@@ -2732,12 +2931,11 @@ interface PlanCanvasProps {
   ghostProjection: ReturnType<typeof projectLevel2D> | null;
   ghostLabel: string | null;
   activeTool: EditorTool;
+  selection: EditorSelection;
+  hoveredTarget: SelectionTarget | null;
   selectedWallId: string | null;
   selectedWallStartVertexId: string | null;
   selectedWallEndVertexId: string | null;
-  selectedRoomKey: string | null;
-  selectedBlueprintId: string | null;
-  selectedObjectId: string | null;
   calibrationDraft: BlueprintCalibrationDraft | null;
   draftStart: PlanPoint | null;
   draftEnd: PlanPoint | null;
@@ -2745,14 +2943,15 @@ interface PlanCanvasProps {
   snapSource: PlanSnapResult["source"] | null;
   openingHover: OpeningWallPlacement | null;
   onPoint(point: PlanPoint): void;
-  onSelectWall(wallId: string): void;
+  onSelectWall(wallId: string, additive?: boolean): void;
+  onMoveWall(wallId: string, deltaXmm: number, deltaYmm: number): void;
   onMoveVertex(vertexId: string, xMm: number, yMm: number): void;
-  onDeleteSelectedWall(): void;
-  onSelectRoom(roomKey: string): void;
-  onSelectBlueprint(blueprintId: string): void;
+  onSelectRoom(roomKey: string, additive?: boolean): void;
+  onSelectBlueprint(blueprintId: string, additive?: boolean): void;
   onMoveBlueprint(blueprintId: string, xMm: number, yMm: number): void;
-  onSelectObject(objectId: string): void;
+  onSelectObject(objectId: string, additive?: boolean): void;
   onMoveObject(objectId: string, xMm: number, yMm: number): void;
+  onHoverTarget(target: SelectionTarget | null): void;
   onClearSelection(): void;
   onPointerPosition(point: PlanPoint): void;
   onPointerLeave(): void;
@@ -2771,12 +2970,11 @@ function PlanCanvas({
   ghostProjection,
   ghostLabel,
   activeTool,
+  selection,
+  hoveredTarget,
   selectedWallId,
   selectedWallStartVertexId,
   selectedWallEndVertexId,
-  selectedRoomKey,
-  selectedBlueprintId,
-  selectedObjectId,
   calibrationDraft,
   draftStart,
   draftEnd,
@@ -2785,13 +2983,14 @@ function PlanCanvas({
   openingHover,
   onPoint,
   onSelectWall,
+  onMoveWall,
   onMoveVertex,
-  onDeleteSelectedWall,
   onSelectRoom,
   onSelectBlueprint,
   onMoveBlueprint,
   onSelectObject,
   onMoveObject,
+  onHoverTarget,
   onClearSelection,
   onPointerPosition,
   onPointerLeave,
@@ -2845,6 +3044,19 @@ function PlanCanvas({
     vertexId: string;
     xMm: number;
     yMm: number;
+  } | null>(null);
+  const wallDragRef = useRef<{
+    pointerId: number;
+    wallId: string;
+    startPlanXmm: number;
+    startPlanYmm: number;
+    deltaXmm: number;
+    deltaYmm: number;
+  } | null>(null);
+  const [wallDragPreview, setWallDragPreview] = useState<{
+    wallId: string;
+    deltaXmm: number;
+    deltaYmm: number;
   } | null>(null);
   const [camera, setCamera] = useState<PlanCamera2D>({ ...DEFAULT_PLAN_CAMERA });
   const [showTopologyIssues, setShowTopologyIssues] = useState(false);
@@ -2918,12 +3130,14 @@ function PlanCanvas({
 
     event.preventDefault();
     event.stopPropagation();
-    if (item.kind === "blueprint") onSelectBlueprint(item.id);
-    else onSelectObject(item.id);
-
-    if (item.locked) return;
-
     const svg = svgRef.current;
+    svg?.focus();
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    if (item.kind === "blueprint") onSelectBlueprint(item.id, additive);
+    else onSelectObject(item.id, additive);
+
+    if (additive || item.locked) return;
+
     if (!svg) return;
     const point = clientToPlan(svg, event.clientX, event.clientY);
     if (!point) return;
@@ -3008,6 +3222,78 @@ function PlanCanvas({
     setItemDragPreview(null);
   }
 
+  function beginWallDrag(
+    event: ReactPointerEvent<SVGLineElement>,
+    wallId: string,
+  ) {
+    if (activeTool !== "select" || event.button !== 0) return;
+    if (event.pointerType === "touch" && multiTouchRef.current) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    onSelectWall(wallId, additive);
+    if (additive) return;
+
+    const svg = svgRef.current;
+    if (!svg) return;
+    const point = clientToPlan(svg, event.clientX, event.clientY);
+    if (!point) return;
+
+    svg.focus();
+    svg.setPointerCapture(event.pointerId);
+    wallDragRef.current = {
+      pointerId: event.pointerId,
+      wallId,
+      startPlanXmm: point.xMm,
+      startPlanYmm: point.yMm,
+      deltaXmm: 0,
+      deltaYmm: 0,
+    };
+    setWallDragPreview({ wallId, deltaXmm: 0, deltaYmm: 0 });
+  }
+
+  function updateWallDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    const drag = wallDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+
+    const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
+    if (!point) return true;
+    drag.deltaXmm = Math.round(point.xMm - drag.startPlanXmm);
+    drag.deltaYmm = Math.round(point.yMm - drag.startPlanYmm);
+    setWallDragPreview({
+      wallId: drag.wallId,
+      deltaXmm: drag.deltaXmm,
+      deltaYmm: drag.deltaYmm,
+    });
+    return true;
+  }
+
+  function finishWallDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    const drag = wallDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    wallDragRef.current = null;
+    setWallDragPreview(null);
+    if (drag.deltaXmm !== 0 || drag.deltaYmm !== 0) {
+      onMoveWall(drag.wallId, drag.deltaXmm, drag.deltaYmm);
+    }
+    return true;
+  }
+
+  function cancelWallDrag(event?: ReactPointerEvent<SVGSVGElement>) {
+    const drag = wallDragRef.current;
+    const svg = event?.currentTarget ?? svgRef.current;
+    if (drag && svg?.hasPointerCapture(drag.pointerId)) {
+      svg.releasePointerCapture(drag.pointerId);
+    }
+    wallDragRef.current = null;
+    setWallDragPreview(null);
+  }
+
   function beginVertexDrag(
     event: ReactPointerEvent<SVGCircleElement>,
     vertexId: string,
@@ -3089,6 +3375,7 @@ function PlanCanvas({
     }
 
     cancelPlanItemDrag(event);
+    cancelWallDrag(event);
     cancelVertexDrag(event);
 
     const pan = panRef.current;
@@ -3219,6 +3506,7 @@ function PlanCanvas({
           }
           if (updateTouchGesture(event)) return;
           if (updateVertexDrag(event)) return;
+          if (updateWallDrag(event)) return;
           if (updatePlanItemDrag(event)) return;
 
           const pan = panRef.current;
@@ -3239,7 +3527,15 @@ function PlanCanvas({
           const shouldPan =
             event.button === 1 || (activeTool === "select" && event.button === 0);
           if (shouldPan) {
-            if (activeTool === "select" && event.button === 0) onClearSelection();
+            if (
+              activeTool === "select" &&
+              event.button === 0 &&
+              !event.shiftKey &&
+              !event.ctrlKey &&
+              !event.metaKey
+            ) {
+              onClearSelection();
+            }
             beginPan(event);
             return;
           }
@@ -3279,6 +3575,7 @@ function PlanCanvas({
           }
 
           if (finishVertexDrag(event)) return;
+          if (finishWallDrag(event)) return;
           if (finishPlanItemDrag(event)) return;
           endPan(event);
         }}
@@ -3288,21 +3585,22 @@ function PlanCanvas({
             touchToolTapRef.current = null;
           }
           cancelVertexDrag(event);
+          cancelWallDrag(event);
           cancelPlanItemDrag(event);
           endPan(event);
         }}
         onPointerLeave={() => {
+          onHoverTarget(null);
           if (!panRef.current) onPointerLeave();
         }}
         onKeyDown={(event) => {
-          if ((event.key === "Delete" || event.key === "Backspace") && selectedWallId) {
-            event.preventDefault();
-            onDeleteSelectedWall();
-            return;
-          }
           if (event.key !== "Escape") return;
           if (vertexDragRef.current) {
             cancelVertexDrag();
+            return;
+          }
+          if (wallDragRef.current) {
+            cancelWallDrag();
             return;
           }
           if (itemDragRef.current) {
@@ -3330,12 +3628,14 @@ function PlanCanvas({
           fill="url(#major-grid)"
         />
         {rooms.map((room) => {
-          const selected = room.key === selectedRoomKey;
+          const selected = isSelected(selection, "room", room.key);
+          const hovered =
+            hoveredTarget?.kind === "room" && hoveredTarget.id === room.key;
           return (
             <g key={room.key} className="plan-room">
               <polygon
                 points={room.points.map((point) => `${point.xMm},${point.yMm}`).join(" ")}
-                className={`plan-room__fill${selected ? " plan-room__fill--selected" : ""}`}
+                className={`plan-room__fill${selected ? " plan-room__fill--selected" : ""}${hovered ? " plan-room__fill--hovered" : ""}`}
                 style={{
                   fill: room.floorColorHex ?? undefined,
                   opacity: room.floorColorHex ? 0.24 : undefined,
@@ -3344,8 +3644,16 @@ function PlanCanvas({
                   if (activeTool !== "select" || event.button !== 0) return;
                   event.preventDefault();
                   event.stopPropagation();
-                  onSelectRoom(room.key);
+                  event.currentTarget.ownerSVGElement?.focus();
+                  onSelectRoom(
+                    room.key,
+                    event.shiftKey || event.ctrlKey || event.metaKey,
+                  );
                 }}
+                onPointerEnter={() =>
+                  onHoverTarget({ kind: "room", id: room.key })
+                }
+                onPointerLeave={() => onHoverTarget(null)}
               />
               <text
                 x={room.centerXmm}
@@ -3363,7 +3671,10 @@ function PlanCanvas({
         {blueprints
           .filter((blueprint) => blueprint.visible)
           .map((blueprint) => {
-            const selected = blueprint.id === selectedBlueprintId;
+            const selected = isSelected(selection, "blueprint", blueprint.id);
+            const hovered =
+              hoveredTarget?.kind === "blueprint" &&
+              hoveredTarget.id === blueprint.id;
             const preview =
               itemDragPreview?.kind === "blueprint" &&
               itemDragPreview.id === blueprint.id
@@ -3389,7 +3700,11 @@ function PlanCanvas({
                   preserveAspectRatio="none"
                   overflow="hidden"
                   opacity={blueprint.opacity}
-                  className={`plan-blueprint${blueprint.locked ? " plan-blueprint--locked" : ""}`}
+                  className={`plan-blueprint${blueprint.locked ? " plan-blueprint--locked" : ""}${hovered ? " plan-blueprint--hovered" : ""}`}
+                  onPointerEnter={() =>
+                    onHoverTarget({ kind: "blueprint", id: blueprint.id })
+                  }
+                  onPointerLeave={() => onHoverTarget(null)}
                   onPointerDown={(event) =>
                     beginPlanItemDrag(event, {
                       kind: "blueprint",
@@ -3450,7 +3765,9 @@ function PlanCanvas({
           </g>
         ) : null}
         {objects.map((object) => {
-          const selected = object.id === selectedObjectId;
+          const selected = isSelected(selection, "object", object.id);
+          const hovered =
+            hoveredTarget?.kind === "object" && hoveredTarget.id === object.id;
           const preview =
             itemDragPreview?.kind === "object" &&
             itemDragPreview.id === object.id
@@ -3464,7 +3781,7 @@ function PlanCanvas({
             <g
               key={object.id}
               transform={`translate(${xMm} ${yMm}) rotate(${object.rotationDeg})`}
-              className={`plan-object${selected ? " plan-object--selected" : ""}${
+              className={`plan-object${selected ? " plan-object--selected" : ""}${hovered ? " plan-object--hovered" : ""}${
                 object.locked ? " plan-object--locked" : ""
               }`}
             >
@@ -3475,6 +3792,10 @@ function PlanCanvas({
                 height={object.depthMm}
                 rx={Math.min(80, object.widthMm / 10, object.depthMm / 10)}
                 className="plan-object__footprint"
+                onPointerEnter={() =>
+                  onHoverTarget({ kind: "object", id: object.id })
+                }
+                onPointerLeave={() => onHoverTarget(null)}
                 onPointerDown={(event) =>
                   beginPlanItemDrag(event, {
                     kind: "object",
@@ -3509,34 +3830,47 @@ function PlanCanvas({
           );
         })}
         {walls.map((wall) => {
-          const selected = wall.id === selectedWallId;
-          const dimension = wallDimensionPosition(wall);
-          const materialEdges = wallMaterialEdges(wall);
+          const selected = isSelected(selection, "wall", wall.id);
+          const primary = wall.id === selectedWallId;
+          const hovered =
+            hoveredTarget?.kind === "wall" && hoveredTarget.id === wall.id;
+          const drag =
+            wallDragPreview?.wallId === wall.id ? wallDragPreview : null;
+          const renderedWall = drag
+            ? {
+                ...wall,
+                x1Mm: wall.x1Mm + drag.deltaXmm,
+                y1Mm: wall.y1Mm + drag.deltaYmm,
+                x2Mm: wall.x2Mm + drag.deltaXmm,
+                y2Mm: wall.y2Mm + drag.deltaYmm,
+              }
+            : wall;
+          const dimension = wallDimensionPosition(renderedWall);
+          const materialEdges = wallMaterialEdges(renderedWall);
 
           return (
             <g key={wall.id}>
               <line
-                x1={wall.x1Mm}
-                y1={wall.y1Mm}
-                x2={wall.x2Mm}
-                y2={wall.y2Mm}
+                x1={renderedWall.x1Mm}
+                y1={renderedWall.y1Mm}
+                x2={renderedWall.x2Mm}
+                y2={renderedWall.y2Mm}
                 strokeWidth={Math.max(wall.thicknessMm + 40, camera.mmPerPixel * 28)}
                 className="plan-wall-hit"
                 strokeLinecap="square"
-                onPointerDown={(event) => {
-                  if (activeTool !== "select" || event.button !== 0) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onSelectWall(wall.id);
-                }}
+                onPointerEnter={() =>
+                  onHoverTarget({ kind: "wall", id: wall.id })
+                }
+                onPointerLeave={() => onHoverTarget(null)}
+                onPointerDown={(event) => beginWallDrag(event, wall.id)}
               />
               <line
-                x1={wall.x1Mm}
-                y1={wall.y1Mm}
-                x2={wall.x2Mm}
-                y2={wall.y2Mm}
+                x1={renderedWall.x1Mm}
+                y1={renderedWall.y1Mm}
+                x2={renderedWall.x2Mm}
+                y2={renderedWall.y2Mm}
                 strokeWidth={wall.thicknessMm}
-                className={`plan-wall${selected ? " plan-wall--selected" : ""}`}
+                className={`plan-wall${selected ? " plan-wall--selected" : ""}${hovered ? " plan-wall--hovered" : ""}`}
                 strokeLinecap="square"
                 pointerEvents="none"
               />
@@ -3564,7 +3898,7 @@ function PlanCanvas({
                   pointerEvents="none"
                 />
               ) : null}
-              {selected ? (
+              {primary ? (
                 <text
                   x={dimension.xMm}
                   y={dimension.yMm}
@@ -3576,18 +3910,18 @@ function PlanCanvas({
                   {Math.round(wall.lengthMm)} mm
                 </text>
               ) : null}
-              {selected && selectedWallStartVertexId && selectedWallEndVertexId ? (
+              {primary && selectedWallStartVertexId && selectedWallEndVertexId ? (
                 <>
                   <circle
                     cx={
                       vertexDragPreview?.vertexId === selectedWallStartVertexId
                         ? vertexDragPreview.xMm
-                        : wall.x1Mm
+                        : renderedWall.x1Mm
                     }
                     cy={
                       vertexDragPreview?.vertexId === selectedWallStartVertexId
                         ? vertexDragPreview.yMm
-                        : wall.y1Mm
+                        : renderedWall.y1Mm
                     }
                     r={Math.max(70, camera.mmPerPixel * 8)}
                     className="wall-vertex-handle"
@@ -3596,8 +3930,8 @@ function PlanCanvas({
                       beginVertexDrag(
                         event,
                         selectedWallStartVertexId,
-                        wall.x1Mm,
-                        wall.y1Mm,
+                        renderedWall.x1Mm,
+                        renderedWall.y1Mm,
                       )
                     }
                   />
@@ -3605,12 +3939,12 @@ function PlanCanvas({
                     cx={
                       vertexDragPreview?.vertexId === selectedWallEndVertexId
                         ? vertexDragPreview.xMm
-                        : wall.x2Mm
+                        : renderedWall.x2Mm
                     }
                     cy={
                       vertexDragPreview?.vertexId === selectedWallEndVertexId
                         ? vertexDragPreview.yMm
-                        : wall.y2Mm
+                        : renderedWall.y2Mm
                     }
                     r={Math.max(70, camera.mmPerPixel * 8)}
                     className="wall-vertex-handle"
@@ -3619,8 +3953,8 @@ function PlanCanvas({
                       beginVertexDrag(
                         event,
                         selectedWallEndVertexId,
-                        wall.x2Mm,
-                        wall.y2Mm,
+                        renderedWall.x2Mm,
+                        renderedWall.y2Mm,
                       )
                     }
                   />
@@ -3761,18 +4095,24 @@ interface ThreeViewportProps {
   document: ProjectDocument;
   levelId: string;
   levelScope: RoomSceneLevelScope;
-  selectedId: string | null;
+  selection: EditorSelection;
+  hoveredTarget: SelectionTarget | null;
   modelAssets: readonly RuntimeModelAsset[];
   showCeilings: boolean;
+  onSelect(hit: RoomSceneHit | null, additive: boolean): void;
+  onHover(hit: RoomSceneHit | null): void;
 }
 
 function ThreeViewport({
   document,
   levelId,
   levelScope,
-  selectedId,
+  selection,
+  hoveredTarget,
   modelAssets,
   showCeilings,
+  onSelect,
+  onHover,
 }: ThreeViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<RoomSceneRenderer | null>(null);
@@ -3791,6 +4131,10 @@ function ThreeViewport({
   }, []);
 
   useEffect(() => {
+    rendererRef.current?.setInteractionHandlers({ onSelect, onHover });
+  }, [onSelect, onHover]);
+
+  useEffect(() => {
     rendererRef.current?.setDocument(document, levelId, {
       levelScope,
       modelAssets,
@@ -3799,8 +4143,15 @@ function ThreeViewport({
   }, [document, levelId, levelScope, modelAssets, showCeilings]);
 
   useEffect(() => {
-    rendererRef.current?.setSelection(selectedId);
-  }, [selectedId]);
+    rendererRef.current?.setSelection(
+      selectionIds(selection),
+      selection.primary?.id ?? null,
+    );
+  }, [selection]);
+
+  useEffect(() => {
+    rendererRef.current?.setHover(hoveredTarget?.id ?? null);
+  }, [hoveredTarget]);
 
   return <div ref={hostRef} className="three-viewport" aria-label="3D apartment view" />;
 }
