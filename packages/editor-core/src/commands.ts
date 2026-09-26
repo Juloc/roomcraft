@@ -23,6 +23,28 @@ export interface EditorCommand {
   execute(document: ProjectDocument): CommandResult;
 }
 
+export class BatchCommand implements EditorCommand {
+  readonly type = "Batch";
+
+  constructor(private readonly commands: readonly EditorCommand[]) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    let current = document;
+    const inverses: EditorCommand[] = [];
+
+    for (const command of this.commands) {
+      const result = command.execute(current);
+      current = result.document;
+      inverses.push(result.inverse);
+    }
+
+    return {
+      document: current,
+      inverse: new BatchCommand(inverses.reverse()),
+    };
+  }
+}
+
 export class CommandHistory {
   private undoStack: EditorCommand[] = [];
   private redoStack: EditorCommand[] = [];
@@ -293,6 +315,61 @@ export class MoveVertexCommand implements EditorCommand {
         vertexId: existing.id,
         xMm: existing.xMm,
         yMm: existing.yMm,
+      }),
+    };
+  }
+}
+
+export interface MoveWallInput {
+  levelId: EntityId;
+  wallId: EntityId;
+  deltaXmm: number;
+  deltaYmm: number;
+}
+
+export class MoveWallCommand implements EditorCommand {
+  readonly type = "MoveWall";
+
+  constructor(private readonly input: MoveWallInput) {}
+
+  execute(document: ProjectDocument): CommandResult {
+    if (
+      !Number.isSafeInteger(this.input.deltaXmm) ||
+      !Number.isSafeInteger(this.input.deltaYmm)
+    ) {
+      throw new Error("Wall movement must use integer millimetre deltas.");
+    }
+
+    const level = getLevel(document, this.input.levelId);
+    const wall = level.walls.find((candidate) => candidate.id === this.input.wallId);
+    if (!wall) throw new Error(`Wall ${this.input.wallId} does not exist.`);
+
+    const endpointIds = new Set([wall.startVertexId, wall.endVertexId]);
+    const nextLevel: Level = {
+      ...level,
+      vertices: level.vertices.map((vertex) =>
+        endpointIds.has(vertex.id)
+          ? {
+              ...vertex,
+              xMm: vertex.xMm + this.input.deltaXmm,
+              yMm: vertex.yMm + this.input.deltaYmm,
+            }
+          : vertex,
+      ),
+    };
+
+    validateIncidentWallGeometry(nextLevel, wall.startVertexId);
+    validateIncidentWallGeometry(nextLevel, wall.endVertexId);
+    const nextDocument = replaceLevel(document, nextLevel);
+    validateProjectDocument(nextDocument);
+
+    return {
+      document: nextDocument,
+      inverse: new MoveWallCommand({
+        levelId: this.input.levelId,
+        wallId: this.input.wallId,
+        deltaXmm: -this.input.deltaXmm,
+        deltaYmm: -this.input.deltaYmm,
       }),
     };
   }
