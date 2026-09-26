@@ -4052,18 +4052,24 @@ interface ThreeViewportProps {
   document: ProjectDocument;
   levelId: string;
   levelScope: RoomSceneLevelScope;
-  selectedId: string | null;
+  selection: EditorSelection;
+  hoveredTarget: SelectionTarget | null;
   modelAssets: readonly RuntimeModelAsset[];
   showCeilings: boolean;
+  onSelect(hit: RoomSceneHit | null, additive: boolean): void;
+  onHover(hit: RoomSceneHit | null): void;
 }
 
 function ThreeViewport({
   document,
   levelId,
   levelScope,
-  selectedId,
+  selection,
+  hoveredTarget,
   modelAssets,
   showCeilings,
+  onSelect,
+  onHover,
 }: ThreeViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<RoomSceneRenderer | null>(null);
@@ -4082,6 +4088,10 @@ function ThreeViewport({
   }, []);
 
   useEffect(() => {
+    rendererRef.current?.setInteractionHandlers({ onSelect, onHover });
+  }, [onSelect, onHover]);
+
+  useEffect(() => {
     rendererRef.current?.setDocument(document, levelId, {
       levelScope,
       modelAssets,
@@ -4090,8 +4100,15 @@ function ThreeViewport({
   }, [document, levelId, levelScope, modelAssets, showCeilings]);
 
   useEffect(() => {
-    rendererRef.current?.setSelection(selectedId);
-  }, [selectedId]);
+    rendererRef.current?.setSelection(
+      selectionIds(selection),
+      selection.primary?.id ?? null,
+    );
+  }, [selection]);
+
+  useEffect(() => {
+    rendererRef.current?.setHover(hoveredTarget?.id ?? null);
+  }, [hoveredTarget]);
 
   return <div ref={hostRef} className="three-viewport" aria-label="3D apartment view" />;
 }
