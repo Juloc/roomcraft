@@ -44,6 +44,7 @@ test("dragging a wall moves both semantic endpoints in one command", async ({ pa
   await plan.click({ position: { x: box.width * 0.25, y: box.height * 0.32 } });
   await plan.click({ position: { x: box.width * 0.55, y: box.height * 0.32 } });
   await plan.click({ button: "right", position: { x: box.width * 0.8, y: box.height * 0.8 } });
+  await expect(page.locator(".save-state:visible")).toHaveText("Saved");
 
   const before = await readWallGeometry(page, projectId);
   const startX = box.x + box.width * 0.4;
