@@ -3131,13 +3131,14 @@ function PlanCanvas({
 
     event.preventDefault();
     event.stopPropagation();
+    const svg = svgRef.current;
+    svg?.focus();
     const additive = event.shiftKey || event.ctrlKey || event.metaKey;
     if (item.kind === "blueprint") onSelectBlueprint(item.id, additive);
     else onSelectObject(item.id, additive);
 
     if (additive || item.locked) return;
 
-    const svg = svgRef.current;
     if (!svg) return;
     const point = clientToPlan(svg, event.clientX, event.clientY);
     if (!point) return;
@@ -3644,6 +3645,7 @@ function PlanCanvas({
                   if (activeTool !== "select" || event.button !== 0) return;
                   event.preventDefault();
                   event.stopPropagation();
+                  event.currentTarget.ownerSVGElement?.focus();
                   onSelectRoom(
                     room.key,
                     event.shiftKey || event.ctrlKey || event.metaKey,
