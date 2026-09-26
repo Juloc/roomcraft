@@ -18,10 +18,12 @@ import {
   AddObjectCommand,
   AddOpeningCommand,
   AddParametricAssetCommand,
+  BatchCommand,
   CalibrateBlueprintCommand,
   EMPTY_SELECTION,
   MoveBlueprintLayerCommand,
   MoveVertexCommand,
+  MoveWallCommand,
   RemoveBlueprintCommand,
   RemoveLevelCommand,
   RemoveObjectCommand,
@@ -41,12 +43,17 @@ import {
   fitPlanCamera,
   panPlanCamera,
   planViewBox,
+  isSelected,
+  selectMany,
   selectOnly,
+  selectionIds,
+  toggleSelection,
   snapObjectPosition,
   snapOpeningToWall,
   zoomPlanCameraAt,
   snapPlanPoint,
   type EditorSelection,
+  type SelectionTarget,
   type OpeningWallPlacement,
   type PlanCamera2D,
   type PlanSnapResult,
@@ -78,6 +85,7 @@ import { projectLevel2D } from "@roomcraft/render-2d";
 import {
   inspectGlbFile,
   RoomSceneRenderer,
+  type RoomSceneHit,
   type RoomSceneLevelScope,
   type RuntimeModelAsset,
 } from "@roomcraft/render-3d";
@@ -101,6 +109,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -277,6 +286,7 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   const catalogRequestRef = useRef(0);
   const catalogLoadingRef = useRef(new Set<string>());
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
+  const [hoveredTarget, setHoveredTarget] = useState<SelectionTarget | null>(null);
   const blueprintFileRef = useRef<HTMLInputElement | null>(null);
   const modelFileRef = useRef<HTMLInputElement | null>(null);
   const projectImportRef = useRef<HTMLInputElement | null>(null);
@@ -476,6 +486,15 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
         [parametricAssetId(definition.id), definition.name] as const,
     ),
   ]);
+  const duplicableSelectionCount = selection.items.filter(
+    (target) => target.kind === "object" || target.kind === "blueprint",
+  ).length;
+  const deletableSelectionCount = selection.items.filter(
+    (target) =>
+      target.kind === "wall" ||
+      target.kind === "object" ||
+      target.kind === "blueprint",
+  ).length;
 
   function resolveFurnitureDefinition(
     assetId: string,
