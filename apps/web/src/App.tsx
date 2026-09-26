@@ -3586,12 +3586,14 @@ function PlanCanvas({
           fill="url(#major-grid)"
         />
         {rooms.map((room) => {
-          const selected = room.key === selectedRoomKey;
+          const selected = isSelected(selection, "room", room.key);
+          const hovered =
+            hoveredTarget?.kind === "room" && hoveredTarget.id === room.key;
           return (
             <g key={room.key} className="plan-room">
               <polygon
                 points={room.points.map((point) => `${point.xMm},${point.yMm}`).join(" ")}
-                className={`plan-room__fill${selected ? " plan-room__fill--selected" : ""}`}
+                className={`plan-room__fill${selected ? " plan-room__fill--selected" : ""}${hovered ? " plan-room__fill--hovered" : ""}`}
                 style={{
                   fill: room.floorColorHex ?? undefined,
                   opacity: room.floorColorHex ? 0.24 : undefined,
@@ -3600,8 +3602,15 @@ function PlanCanvas({
                   if (activeTool !== "select" || event.button !== 0) return;
                   event.preventDefault();
                   event.stopPropagation();
-                  onSelectRoom(room.key);
+                  onSelectRoom(
+                    room.key,
+                    event.shiftKey || event.ctrlKey || event.metaKey,
+                  );
                 }}
+                onPointerEnter={() =>
+                  onHoverTarget({ kind: "room", id: room.key })
+                }
+                onPointerLeave={() => onHoverTarget(null)}
               />
               <text
                 x={room.centerXmm}
@@ -3619,7 +3628,10 @@ function PlanCanvas({
         {blueprints
           .filter((blueprint) => blueprint.visible)
           .map((blueprint) => {
-            const selected = blueprint.id === selectedBlueprintId;
+            const selected = isSelected(selection, "blueprint", blueprint.id);
+            const hovered =
+              hoveredTarget?.kind === "blueprint" &&
+              hoveredTarget.id === blueprint.id;
             const preview =
               itemDragPreview?.kind === "blueprint" &&
               itemDragPreview.id === blueprint.id
@@ -3645,7 +3657,11 @@ function PlanCanvas({
                   preserveAspectRatio="none"
                   overflow="hidden"
                   opacity={blueprint.opacity}
-                  className={`plan-blueprint${blueprint.locked ? " plan-blueprint--locked" : ""}`}
+                  className={`plan-blueprint${blueprint.locked ? " plan-blueprint--locked" : ""}${hovered ? " plan-blueprint--hovered" : ""}`}
+                  onPointerEnter={() =>
+                    onHoverTarget({ kind: "blueprint", id: blueprint.id })
+                  }
+                  onPointerLeave={() => onHoverTarget(null)}
                   onPointerDown={(event) =>
                     beginPlanItemDrag(event, {
                       kind: "blueprint",
@@ -3706,7 +3722,9 @@ function PlanCanvas({
           </g>
         ) : null}
         {objects.map((object) => {
-          const selected = object.id === selectedObjectId;
+          const selected = isSelected(selection, "object", object.id);
+          const hovered =
+            hoveredTarget?.kind === "object" && hoveredTarget.id === object.id;
           const preview =
             itemDragPreview?.kind === "object" &&
             itemDragPreview.id === object.id
@@ -3720,7 +3738,7 @@ function PlanCanvas({
             <g
               key={object.id}
               transform={`translate(${xMm} ${yMm}) rotate(${object.rotationDeg})`}
-              className={`plan-object${selected ? " plan-object--selected" : ""}${
+              className={`plan-object${selected ? " plan-object--selected" : ""}${hovered ? " plan-object--hovered" : ""}${
                 object.locked ? " plan-object--locked" : ""
               }`}
             >
@@ -3731,6 +3749,10 @@ function PlanCanvas({
                 height={object.depthMm}
                 rx={Math.min(80, object.widthMm / 10, object.depthMm / 10)}
                 className="plan-object__footprint"
+                onPointerEnter={() =>
+                  onHoverTarget({ kind: "object", id: object.id })
+                }
+                onPointerLeave={() => onHoverTarget(null)}
                 onPointerDown={(event) =>
                   beginPlanItemDrag(event, {
                     kind: "object",
@@ -3749,7 +3771,7 @@ function PlanCanvas({
                 className="plan-object__front"
                 pointerEvents="none"
               />
-              {selected ? (
+              {primary ? (
                 <text
                   x={0}
                   y={0}
@@ -3765,34 +3787,47 @@ function PlanCanvas({
           );
         })}
         {walls.map((wall) => {
-          const selected = wall.id === selectedWallId;
-          const dimension = wallDimensionPosition(wall);
-          const materialEdges = wallMaterialEdges(wall);
+          const selected = isSelected(selection, "wall", wall.id);
+          const primary = wall.id === selectedWallId;
+          const hovered =
+            hoveredTarget?.kind === "wall" && hoveredTarget.id === wall.id;
+          const drag =
+            wallDragPreview?.wallId === wall.id ? wallDragPreview : null;
+          const renderedWall = drag
+            ? {
+                ...wall,
+                x1Mm: wall.x1Mm + drag.deltaXmm,
+                y1Mm: wall.y1Mm + drag.deltaYmm,
+                x2Mm: wall.x2Mm + drag.deltaXmm,
+                y2Mm: wall.y2Mm + drag.deltaYmm,
+              }
+            : wall;
+          const dimension = wallDimensionPosition(renderedWall);
+          const materialEdges = wallMaterialEdges(renderedWall);
 
           return (
             <g key={wall.id}>
               <line
-                x1={wall.x1Mm}
-                y1={wall.y1Mm}
-                x2={wall.x2Mm}
-                y2={wall.y2Mm}
+                x1={renderedWall.x1Mm}
+                y1={renderedWall.y1Mm}
+                x2={renderedWall.x2Mm}
+                y2={renderedWall.y2Mm}
                 strokeWidth={Math.max(wall.thicknessMm + 40, camera.mmPerPixel * 28)}
                 className="plan-wall-hit"
                 strokeLinecap="square"
-                onPointerDown={(event) => {
-                  if (activeTool !== "select" || event.button !== 0) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onSelectWall(wall.id);
-                }}
+                onPointerEnter={() =>
+                  onHoverTarget({ kind: "wall", id: wall.id })
+                }
+                onPointerLeave={() => onHoverTarget(null)}
+                onPointerDown={(event) => beginWallDrag(event, wall.id)}
               />
               <line
-                x1={wall.x1Mm}
-                y1={wall.y1Mm}
-                x2={wall.x2Mm}
-                y2={wall.y2Mm}
+                x1={renderedWall.x1Mm}
+                y1={renderedWall.y1Mm}
+                x2={renderedWall.x2Mm}
+                y2={renderedWall.y2Mm}
                 strokeWidth={wall.thicknessMm}
-                className={`plan-wall${selected ? " plan-wall--selected" : ""}`}
+                className={`plan-wall${selected ? " plan-wall--selected" : ""}${hovered ? " plan-wall--hovered" : ""}`}
                 strokeLinecap="square"
                 pointerEvents="none"
               />
@@ -3832,18 +3867,18 @@ function PlanCanvas({
                   {Math.round(wall.lengthMm)} mm
                 </text>
               ) : null}
-              {selected && selectedWallStartVertexId && selectedWallEndVertexId ? (
+              {primary && selectedWallStartVertexId && selectedWallEndVertexId ? (
                 <>
                   <circle
                     cx={
                       vertexDragPreview?.vertexId === selectedWallStartVertexId
                         ? vertexDragPreview.xMm
-                        : wall.x1Mm
+                        : renderedWall.x1Mm
                     }
                     cy={
                       vertexDragPreview?.vertexId === selectedWallStartVertexId
                         ? vertexDragPreview.yMm
-                        : wall.y1Mm
+                        : renderedWall.y1Mm
                     }
                     r={Math.max(70, camera.mmPerPixel * 8)}
                     className="wall-vertex-handle"
@@ -3852,8 +3887,8 @@ function PlanCanvas({
                       beginVertexDrag(
                         event,
                         selectedWallStartVertexId,
-                        wall.x1Mm,
-                        wall.y1Mm,
+                        renderedWall.x1Mm,
+                        renderedWall.y1Mm,
                       )
                     }
                   />
@@ -3861,12 +3896,12 @@ function PlanCanvas({
                     cx={
                       vertexDragPreview?.vertexId === selectedWallEndVertexId
                         ? vertexDragPreview.xMm
-                        : wall.x2Mm
+                        : renderedWall.x2Mm
                     }
                     cy={
                       vertexDragPreview?.vertexId === selectedWallEndVertexId
                         ? vertexDragPreview.yMm
-                        : wall.y2Mm
+                        : renderedWall.y2Mm
                     }
                     r={Math.max(70, camera.mmPerPixel * 8)}
                     className="wall-vertex-handle"
@@ -3875,8 +3910,8 @@ function PlanCanvas({
                       beginVertexDrag(
                         event,
                         selectedWallEndVertexId,
-                        wall.x2Mm,
-                        wall.y2Mm,
+                        renderedWall.x2Mm,
+                        renderedWall.y2Mm,
                       )
                     }
                   />
