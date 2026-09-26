@@ -126,6 +126,7 @@ export class RoomSceneRenderer {
     );
     this.renderer.domElement.addEventListener("pointerdown", this.handlePointerDown);
     this.renderer.domElement.addEventListener("pointerup", this.handlePointerUp);
+    this.renderer.domElement.addEventListener("pointercancel", this.handlePointerCancel);
     this.renderer.domElement.addEventListener("pointermove", this.handlePointerMove);
     this.renderer.domElement.addEventListener("pointerleave", this.handlePointerLeave);
 
@@ -217,6 +218,7 @@ export class RoomSceneRenderer {
     );
     this.renderer.domElement.removeEventListener("pointerdown", this.handlePointerDown);
     this.renderer.domElement.removeEventListener("pointerup", this.handlePointerUp);
+    this.renderer.domElement.removeEventListener("pointercancel", this.handlePointerCancel);
     this.renderer.domElement.removeEventListener("pointermove", this.handlePointerMove);
     this.renderer.domElement.removeEventListener("pointerleave", this.handlePointerLeave);
     this.controls.dispose();
@@ -375,6 +377,10 @@ export class RoomSceneRenderer {
       this.pick(event.clientX, event.clientY),
       event.shiftKey || event.ctrlKey || event.metaKey,
     );
+  };
+
+  private readonly handlePointerCancel = (): void => {
+    this.pointerDown = null;
   };
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
