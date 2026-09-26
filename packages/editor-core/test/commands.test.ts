@@ -1,6 +1,6 @@
 import { createEmptyProject } from "@roomcraft/document";
 import { describe, expect, it } from "vitest";
-import { AddBlueprintCommand, AddLevelCommand, AddObjectCommand, AddOpeningCommand, AddParametricAssetCommand, AddWallCommand, CalibrateBlueprintCommand, CommandHistory, MoveBlueprintLayerCommand, RemoveBlueprintCommand, RemoveLevelCommand, RemoveObjectCommand, RemoveParametricAssetCommand, SetRoomSurfaceMaterialsCommand, SetWallLengthCommand, SetWallMaterialsCommand, UpdateLevelCommand, UpdateObjectCommand, UpdateParametricAssetCommand } from "../src";
+import { AddBlueprintCommand, AddLevelCommand, AddObjectCommand, AddOpeningCommand, AddParametricAssetCommand, AddWallCommand, BatchCommand, CalibrateBlueprintCommand, CommandHistory, MoveBlueprintLayerCommand, MoveWallCommand, RemoveBlueprintCommand, RemoveLevelCommand, RemoveObjectCommand, RemoveParametricAssetCommand, SetRoomSurfaceMaterialsCommand, SetWallLengthCommand, SetWallMaterialsCommand, UpdateLevelCommand, UpdateObjectCommand, UpdateParametricAssetCommand } from "../src";
 
 describe("CommandHistory", () => {
   it("adds a wall through a command and restores it through undo/redo", () => {
@@ -725,6 +725,113 @@ describe("CommandHistory", () => {
         }),
       ),
     ).toThrow("heightMm must be at least");
+  });
+
+
+  it("moves a complete wall as one undoable command", () => {
+    const history = new CommandHistory(createEmptyProject("project_move_wall"));
+    history.execute(
+      new AddWallCommand({
+        levelId: "level_ground",
+        wallId: "wall_1",
+        start: { kind: "new", vertex: { id: "vertex_1", xMm: 0, yMm: 0 } },
+        end: { kind: "new", vertex: { id: "vertex_2", xMm: 4000, yMm: 0 } },
+        thicknessMm: 120,
+      }),
+    );
+
+    history.execute(
+      new MoveWallCommand({
+        levelId: "level_ground",
+        wallId: "wall_1",
+        deltaXmm: 500,
+        deltaYmm: -250,
+      }),
+    );
+
+    expect(history.document.levels[0]?.vertices).toEqual([
+      { id: "vertex_1", xMm: 500, yMm: -250 },
+      { id: "vertex_2", xMm: 4500, yMm: -250 },
+    ]);
+
+    history.undo();
+    expect(history.document.levels[0]?.vertices).toEqual([
+      { id: "vertex_1", xMm: 0, yMm: 0 },
+      { id: "vertex_2", xMm: 4000, yMm: 0 },
+    ]);
+  });
+
+  it("moves shared endpoints with a wall so connected geometry stays connected", () => {
+    const history = new CommandHistory(createEmptyProject("project_move_connected"));
+    history.execute(
+      new AddWallCommand({
+        levelId: "level_ground",
+        wallId: "wall_1",
+        start: { kind: "new", vertex: { id: "vertex_1", xMm: 0, yMm: 0 } },
+        end: { kind: "new", vertex: { id: "vertex_2", xMm: 4000, yMm: 0 } },
+        thicknessMm: 120,
+      }),
+    );
+    history.execute(
+      new AddWallCommand({
+        levelId: "level_ground",
+        wallId: "wall_2",
+        start: { kind: "existing", vertexId: "vertex_2" },
+        end: { kind: "new", vertex: { id: "vertex_3", xMm: 4000, yMm: 3000 } },
+        thicknessMm: 120,
+      }),
+    );
+
+    history.execute(
+      new MoveWallCommand({
+        levelId: "level_ground",
+        wallId: "wall_1",
+        deltaXmm: 1000,
+        deltaYmm: 500,
+      }),
+    );
+
+    expect(
+      history.document.levels[0]?.vertices.find((vertex) => vertex.id === "vertex_2"),
+    ).toMatchObject({ xMm: 5000, yMm: 500 });
+    expect(
+      history.document.levels[0]?.walls.find((wall) => wall.id === "wall_2")?.startVertexId,
+    ).toBe("vertex_2");
+  });
+
+  it("executes a batch as one undo entry", () => {
+    const history = new CommandHistory(createEmptyProject("project_batch"));
+    const objectA = {
+      id: "object_a",
+      assetId: "builtin:box",
+      xMm: 0,
+      yMm: 0,
+      zMm: 0,
+      rotationDeg: 0,
+      widthMm: 800,
+      depthMm: 600,
+      heightMm: 800,
+      locked: false,
+    };
+    const objectB = { ...objectA, id: "object_b", xMm: 1000 };
+
+    history.execute(
+      new BatchCommand([
+        new AddObjectCommand({ levelId: "level_ground", object: objectA }),
+        new AddObjectCommand({ levelId: "level_ground", object: objectB }),
+      ]),
+    );
+
+    expect(history.document.levels[0]?.objects.map((object) => object.id)).toEqual([
+      "object_a",
+      "object_b",
+    ]);
+
+    history.undo();
+    expect(history.document.levels[0]?.objects).toEqual([]);
+
+    history.redo();
+    expect(history.document.levels[0]?.objects).toHaveLength(2);
   });
 
 });
