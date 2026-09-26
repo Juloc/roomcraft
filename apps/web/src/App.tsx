@@ -3004,6 +3004,19 @@ function PlanCanvas({
     xMm: number;
     yMm: number;
   } | null>(null);
+  const wallDragRef = useRef<{
+    pointerId: number;
+    wallId: string;
+    startPlanXmm: number;
+    startPlanYmm: number;
+    deltaXmm: number;
+    deltaYmm: number;
+  } | null>(null);
+  const [wallDragPreview, setWallDragPreview] = useState<{
+    wallId: string;
+    deltaXmm: number;
+    deltaYmm: number;
+  } | null>(null);
   const [camera, setCamera] = useState<PlanCamera2D>({ ...DEFAULT_PLAN_CAMERA });
   const [showTopologyIssues, setShowTopologyIssues] = useState(false);
   const [viewportSize, setViewportSize] = useState<ViewportSizePx>({
@@ -3166,6 +3179,78 @@ function PlanCanvas({
     setItemDragPreview(null);
   }
 
+  function beginWallDrag(
+    event: ReactPointerEvent<SVGLineElement>,
+    wallId: string,
+  ) {
+    if (activeTool !== "select" || event.button !== 0) return;
+    if (event.pointerType === "touch" && multiTouchRef.current) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    onSelectWall(wallId, additive);
+    if (additive) return;
+
+    const svg = svgRef.current;
+    if (!svg) return;
+    const point = clientToPlan(svg, event.clientX, event.clientY);
+    if (!point) return;
+
+    svg.focus();
+    svg.setPointerCapture(event.pointerId);
+    wallDragRef.current = {
+      pointerId: event.pointerId,
+      wallId,
+      startPlanXmm: point.xMm,
+      startPlanYmm: point.yMm,
+      deltaXmm: 0,
+      deltaYmm: 0,
+    };
+    setWallDragPreview({ wallId, deltaXmm: 0, deltaYmm: 0 });
+  }
+
+  function updateWallDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    const drag = wallDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+
+    const point = clientToPlan(event.currentTarget, event.clientX, event.clientY);
+    if (!point) return true;
+    drag.deltaXmm = Math.round(point.xMm - drag.startPlanXmm);
+    drag.deltaYmm = Math.round(point.yMm - drag.startPlanYmm);
+    setWallDragPreview({
+      wallId: drag.wallId,
+      deltaXmm: drag.deltaXmm,
+      deltaYmm: drag.deltaYmm,
+    });
+    return true;
+  }
+
+  function finishWallDrag(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    const drag = wallDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    wallDragRef.current = null;
+    setWallDragPreview(null);
+    if (drag.deltaXmm !== 0 || drag.deltaYmm !== 0) {
+      onMoveWall(drag.wallId, drag.deltaXmm, drag.deltaYmm);
+    }
+    return true;
+  }
+
+  function cancelWallDrag(event?: ReactPointerEvent<SVGSVGElement>) {
+    const drag = wallDragRef.current;
+    const svg = event?.currentTarget ?? svgRef.current;
+    if (drag && svg?.hasPointerCapture(drag.pointerId)) {
+      svg.releasePointerCapture(drag.pointerId);
+    }
+    wallDragRef.current = null;
+    setWallDragPreview(null);
+  }
+
   function beginVertexDrag(
     event: ReactPointerEvent<SVGCircleElement>,
     vertexId: string,
@@ -3247,6 +3332,7 @@ function PlanCanvas({
     }
 
     cancelPlanItemDrag(event);
+    cancelWallDrag(event);
     cancelVertexDrag(event);
 
     const pan = panRef.current;
@@ -3377,6 +3463,7 @@ function PlanCanvas({
           }
           if (updateTouchGesture(event)) return;
           if (updateVertexDrag(event)) return;
+          if (updateWallDrag(event)) return;
           if (updatePlanItemDrag(event)) return;
 
           const pan = panRef.current;
@@ -3437,6 +3524,7 @@ function PlanCanvas({
           }
 
           if (finishVertexDrag(event)) return;
+          if (finishWallDrag(event)) return;
           if (finishPlanItemDrag(event)) return;
           endPan(event);
         }}
@@ -3446,6 +3534,7 @@ function PlanCanvas({
             touchToolTapRef.current = null;
           }
           cancelVertexDrag(event);
+          cancelWallDrag(event);
           cancelPlanItemDrag(event);
           endPan(event);
         }}
@@ -3453,14 +3542,13 @@ function PlanCanvas({
           if (!panRef.current) onPointerLeave();
         }}
         onKeyDown={(event) => {
-          if ((event.key === "Delete" || event.key === "Backspace") && selectedWallId) {
-            event.preventDefault();
-            onDeleteSelectedWall();
-            return;
-          }
           if (event.key !== "Escape") return;
           if (vertexDragRef.current) {
             cancelVertexDrag();
+            return;
+          }
+          if (wallDragRef.current) {
+            cancelWallDrag();
             return;
           }
           if (itemDragRef.current) {
