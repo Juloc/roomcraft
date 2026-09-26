@@ -52,6 +52,7 @@ import {
   snapOpeningToWall,
   zoomPlanCameraAt,
   snapPlanPoint,
+  type EditorCommand,
   type EditorSelection,
   type SelectionTarget,
   type OpeningWallPlacement,
@@ -1429,7 +1430,7 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     if (!current) return;
 
     const offsetMm = Math.max(document.settings.gridSizeMm * 2, 200);
-    const commands = [];
+    const commands: EditorCommand[] = [];
     const nextTargets: SelectionTarget[] = [];
 
     for (const target of selection.items) {
@@ -1480,18 +1481,16 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   }
 
   function deleteSelection() {
-    const commands = selection.items.flatMap((target) => {
+    const commands: EditorCommand[] = [];
+    for (const target of selection.items) {
       if (target.kind === "wall") {
-        return [new RemoveWallByIdCommand(levelId, target.id)];
+        commands.push(new RemoveWallByIdCommand(levelId, target.id));
+      } else if (target.kind === "object") {
+        commands.push(new RemoveObjectCommand(levelId, target.id));
+      } else if (target.kind === "blueprint") {
+        commands.push(new RemoveBlueprintCommand(levelId, target.id));
       }
-      if (target.kind === "object") {
-        return [new RemoveObjectCommand(levelId, target.id)];
-      }
-      if (target.kind === "blueprint") {
-        return [new RemoveBlueprintCommand(levelId, target.id)];
-      }
-      return [];
-    });
+    }
 
     if (commands.length === 0) return;
     session.execute(
