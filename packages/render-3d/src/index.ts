@@ -88,6 +88,7 @@ export class RoomSceneRenderer {
     );
     this.renderer.domElement.className =
       "roomcraft-three-canvas";
+    this.renderer.domElement.tabIndex = 0;
     this.container.replaceChildren(
       this.renderer.domElement,
     );
@@ -159,6 +160,7 @@ export class RoomSceneRenderer {
     this.scene.add(build.group);
     this.frameLevels(build.levels);
     this.updateSelectionHelpers();
+    this.updateHoverHelper();
     this.render();
 
     for (const pending of build.pending) {
@@ -177,6 +179,7 @@ export class RoomSceneRenderer {
           }
 
           this.updateSelectionHelpers();
+          this.updateHoverHelper();
           this.render();
         });
     }
@@ -354,6 +357,7 @@ export class RoomSceneRenderer {
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return;
+    this.renderer.domElement.focus({ preventScroll: true });
     this.pointerDown = {
       x: event.clientX,
       y: event.clientY,
