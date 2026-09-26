@@ -91,12 +91,17 @@ Definition of done:
 - sensible behavior for connected walls ✅
 
 ### 1.5 Selection model 🚧
-- stable selected RoomCraft IDs
-- wall/opening/room/object selection
-- shared 2D/3D selection
-- hover separate from selection
+- stable selected RoomCraft IDs ✅
+- ordered multi-selection + primary target ✅
+- wall/room/object selection ✅
+- blueprint selection ✅
+- opening selection 🚧
+- shared 2D/3D wall/room/object selection ✅
+- hover separate from selection ✅
+- whole-wall drag through one command ✅
 - delete via commands ✅
-- duplicate via commands 🚧
+- object/blueprint duplicate via commands ✅
+- Shift/Ctrl/Cmd additive selection ✅
 
 ### 1.6 Pan / zoom / viewport 🚧
 - infinite-feeling 2D canvas
@@ -277,11 +282,12 @@ Exporters consume the canonical document and shared geometry. They never scrape 
 
 ---
 
-## Phase 9 — 3D usability ⬜
+## Phase 9 — 3D usability 🚧
 
 Goal: make 3D useful for planning, not just a technical preview.
 
-- synchronized selection
+- synchronized semantic selection + raycast picking ✅
+- distinct 3D hover/primary/multi-selection feedback ✅
 - top/orbit presets
 - walk/first-person mode
 - cutaway / hide ceiling
