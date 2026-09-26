@@ -102,11 +102,12 @@ The current alpha includes:
 - command-only document mutation with undo/redo and autosave
 - interactive wall, door/window, room, blueprint and furniture editing
 - multi-level plans with reference ghosts
-- synchronized 2D/3D rendering with GLB model support
+- synchronized 2D/3D rendering, semantic cross-view selection and GLB model support
 - catalog-backed and parametric furniture
 - SVG, PNG/JPEG, native RoomCraft and project GLB export
 - compact desktop command bar, grouped icon tool rail, clear inspector and opt-in topology diagnostics
 - topology-safe wall drawing with automatic crossings/T-junctions and precision length/angle/thickness editing
+- Shift/Ctrl/Cmd multi-selection, whole-wall drag, cross-view 3D picking and batch duplicate/delete
 - phone-first `100dvh` editor with compact header, fixed bottom tools, shared bottom-sheet inspector, one-finger actions and two-finger pan/pinch zoom
 - persistent single-container deployment with internal PostgreSQL 18
 - frontend/backend/container quality gates plus authenticated desktop/mobile Playwright acceptance
