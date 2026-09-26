@@ -3813,7 +3813,7 @@ function PlanCanvas({
                 className="plan-object__front"
                 pointerEvents="none"
               />
-              {primary ? (
+              {selected ? (
                 <text
                   x={0}
                   y={0}
@@ -3897,7 +3897,7 @@ function PlanCanvas({
                   pointerEvents="none"
                 />
               ) : null}
-              {selected ? (
+              {primary ? (
                 <text
                   x={dimension.xMm}
                   y={dimension.yMm}
