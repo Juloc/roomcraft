@@ -3089,10 +3089,11 @@ function PlanCanvas({
 
     event.preventDefault();
     event.stopPropagation();
-    if (item.kind === "blueprint") onSelectBlueprint(item.id);
-    else onSelectObject(item.id);
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    if (item.kind === "blueprint") onSelectBlueprint(item.id, additive);
+    else onSelectObject(item.id, additive);
 
-    if (item.locked) return;
+    if (additive || item.locked) return;
 
     const svg = svgRef.current;
     if (!svg) return;
@@ -3484,7 +3485,15 @@ function PlanCanvas({
           const shouldPan =
             event.button === 1 || (activeTool === "select" && event.button === 0);
           if (shouldPan) {
-            if (activeTool === "select" && event.button === 0) onClearSelection();
+            if (
+              activeTool === "select" &&
+              event.button === 0 &&
+              !event.shiftKey &&
+              !event.ctrlKey &&
+              !event.metaKey
+            ) {
+              onClearSelection();
+            }
             beginPan(event);
             return;
           }
@@ -3539,6 +3548,7 @@ function PlanCanvas({
           endPan(event);
         }}
         onPointerLeave={() => {
+          onHoverTarget(null);
           if (!panRef.current) onPointerLeave();
         }}
         onKeyDown={(event) => {
