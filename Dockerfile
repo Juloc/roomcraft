@@ -1,7 +1,8 @@
 FROM node:22-bookworm-slim AS web-build
 WORKDIR /src
 COPY . .
-RUN npm install
+RUN npm install --global npm@12.1.0
+RUN npm ci
 RUN npm run build
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS server-build
