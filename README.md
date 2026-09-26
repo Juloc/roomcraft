@@ -76,7 +76,7 @@ On the first browser visit, RoomCraft asks you to create the first local adminis
 ```yaml
 services:
   roomcraft:
-    image: ghcr.io/juloc/roomcraft:0.1.0-alpha.7
+    image: ghcr.io/juloc/roomcraft:0.1.0-alpha.8
     volumes:
       - roomcraft_data:/data
     ports:
