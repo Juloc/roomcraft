@@ -25,6 +25,15 @@ export function selectOnly(target: SelectionTarget | null): EditorSelection {
   return target ? { primary: target, items: [target] } : EMPTY_SELECTION;
 }
 
+export function selectMany(targets: readonly SelectionTarget[]): EditorSelection {
+  const unique = [...new Map(
+    targets.map((target) => [selectionTargetKey(target), target] as const),
+  ).values()];
+  return unique.length === 0
+    ? EMPTY_SELECTION
+    : { primary: unique.at(-1) ?? null, items: unique };
+}
+
 export function toggleSelection(
   selection: EditorSelection,
   target: SelectionTarget,
