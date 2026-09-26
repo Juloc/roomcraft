@@ -9,9 +9,12 @@ import {
   GridHelper,
   Material,
   PerspectiveCamera,
+  Raycaster,
   Scene,
   SRGBColorSpace,
+  Vector2,
   Vector3,
+  type Object3D,
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -34,6 +37,18 @@ export interface RoomSceneOptions
     "levelScope" | "modelAssets" | "showCeilings"
   > {}
 
+export type RoomSceneHitKind = "wall" | "object" | "room";
+
+export interface RoomSceneHit {
+  id: string;
+  kind: RoomSceneHitKind;
+}
+
+export interface RoomSceneInteractionHandlers {
+  onSelect?(hit: RoomSceneHit | null, additive: boolean): void;
+  onHover?(hit: RoomSceneHit | null): void;
+}
+
 export class RoomSceneRenderer {
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(45, 1, 0.05, 250);
@@ -50,9 +65,16 @@ export class RoomSceneRenderer {
     import("three").Group
   >();
   private currentBuild: RoomSceneGraphBuild | null = null;
-  private selectionHelper: Box3Helper | null = null;
+  private readonly raycaster = new Raycaster();
+  private readonly pointer = new Vector2();
+  private readonly selectionHelpers: Box3Helper[] = [];
+  private hoverHelper: Box3Helper | null = null;
   private renderGeneration = 0;
-  private selectedId: string | null = null;
+  private selectedIds = new Set<string>();
+  private primarySelectedId: string | null = null;
+  private hoveredId: string | null = null;
+  private interactionHandlers: RoomSceneInteractionHandlers = {};
+  private pointerDown: { x: number; y: number; pointerId: number } | null = null;
   private disposed = false;
 
   constructor(private readonly container: HTMLElement) {
@@ -101,6 +123,10 @@ export class RoomSceneRenderer {
       "change",
       this.render,
     );
+    this.renderer.domElement.addEventListener("pointerdown", this.handlePointerDown);
+    this.renderer.domElement.addEventListener("pointerup", this.handlePointerUp);
+    this.renderer.domElement.addEventListener("pointermove", this.handlePointerMove);
+    this.renderer.domElement.addEventListener("pointerleave", this.handlePointerLeave);
 
     this.resizeObserver = new ResizeObserver(() =>
       this.resize(),
@@ -132,7 +158,7 @@ export class RoomSceneRenderer {
     this.currentBuild = build;
     this.scene.add(build.group);
     this.frameLevels(build.levels);
-    this.updateSelectionHelper();
+    this.updateSelectionHelpers();
     this.render();
 
     for (const pending of build.pending) {
@@ -150,17 +176,30 @@ export class RoomSceneRenderer {
             return;
           }
 
-          this.updateSelectionHelper();
+          this.updateSelectionHelpers();
           this.render();
         });
     }
   }
 
-  setSelection(id: string | null): void {
+  setSelection(ids: readonly string[], primaryId: string | null = null): void {
     this.assertActive();
-    this.selectedId = id;
-    this.updateSelectionHelper();
+    this.selectedIds = new Set(ids);
+    this.primarySelectedId = primaryId;
+    this.updateSelectionHelpers();
     this.render();
+  }
+
+  setHover(id: string | null): void {
+    this.assertActive();
+    this.hoveredId = id;
+    this.updateHoverHelper();
+    this.render();
+  }
+
+  setInteractionHandlers(handlers: RoomSceneInteractionHandlers): void {
+    this.assertActive();
+    this.interactionHandlers = handlers;
   }
 
   dispose(): void {
@@ -173,6 +212,10 @@ export class RoomSceneRenderer {
       "change",
       this.render,
     );
+    this.renderer.domElement.removeEventListener("pointerdown", this.handlePointerDown);
+    this.renderer.domElement.removeEventListener("pointerup", this.handlePointerUp);
+    this.renderer.domElement.removeEventListener("pointermove", this.handlePointerMove);
+    this.renderer.domElement.removeEventListener("pointerleave", this.handlePointerLeave);
     this.controls.dispose();
     this.clearGenerated();
 
@@ -248,45 +291,118 @@ export class RoomSceneRenderer {
     return promise;
   }
 
-  private updateSelectionHelper(): void {
-    this.removeSelectionHelper();
+  private updateSelectionHelpers(): void {
+    this.removeSelectionHelpers();
 
-    const build = this.currentBuild;
-    if (!build || !this.selectedId) return;
+    for (const id of this.selectedIds) {
+      const bounds = this.boundsForId(id);
+      if (!bounds) continue;
 
-    const bounds = new Box3();
-    let found = false;
-
-    for (const child of build.group.children) {
-      if (
-        child.userData.roomcraftId !==
-        this.selectedId
-      ) {
-        continue;
-      }
-      bounds.expandByObject(child);
-      found = true;
+      const helper = new Box3Helper(
+        bounds,
+        new Color(id === this.primarySelectedId ? 0x5f86f2 : 0x91a8eb),
+      );
+      helper.userData.roomcraftSelectionHelper = true;
+      this.selectionHelpers.push(helper);
+      this.scene.add(helper);
     }
+  }
 
-    if (!found || bounds.isEmpty()) return;
+  private updateHoverHelper(): void {
+    this.removeHoverHelper();
+    if (!this.hoveredId || this.selectedIds.has(this.hoveredId)) return;
 
-    const helper = new Box3Helper(
-      bounds,
-      new Color(0x5f86f2),
-    );
-    helper.userData.roomcraftSelectionHelper = true;
-    this.selectionHelper = helper;
+    const bounds = this.boundsForId(this.hoveredId);
+    if (!bounds) return;
+
+    const helper = new Box3Helper(bounds, new Color(0xe1a52b));
+    helper.userData.roomcraftHoverHelper = true;
+    this.hoverHelper = helper;
     this.scene.add(helper);
   }
 
-  private removeSelectionHelper(): void {
-    const helper = this.selectionHelper;
-    if (!helper) return;
+  private boundsForId(id: string): Box3 | null {
+    const build = this.currentBuild;
+    if (!build) return null;
 
+    const bounds = new Box3();
+    let found = false;
+    for (const child of build.group.children) {
+      if (child.userData.roomcraftId !== id) continue;
+      bounds.expandByObject(child);
+      found = true;
+    }
+    return found && !bounds.isEmpty() ? bounds : null;
+  }
+
+  private removeSelectionHelpers(): void {
+    for (const helper of this.selectionHelpers.splice(0)) {
+      this.scene.remove(helper);
+      helper.geometry.dispose();
+      disposeMaterials(helper.material);
+    }
+  }
+
+  private removeHoverHelper(): void {
+    const helper = this.hoverHelper;
+    if (!helper) return;
     this.scene.remove(helper);
     helper.geometry.dispose();
     disposeMaterials(helper.material);
-    this.selectionHelper = null;
+    this.hoverHelper = null;
+  }
+
+  private readonly handlePointerDown = (event: PointerEvent): void => {
+    if (event.button !== 0) return;
+    this.pointerDown = {
+      x: event.clientX,
+      y: event.clientY,
+      pointerId: event.pointerId,
+    };
+  };
+
+  private readonly handlePointerUp = (event: PointerEvent): void => {
+    const start = this.pointerDown;
+    this.pointerDown = null;
+    if (!start || start.pointerId !== event.pointerId || event.button !== 0) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;
+
+    this.interactionHandlers.onSelect?.(
+      this.pick(event.clientX, event.clientY),
+      event.shiftKey || event.ctrlKey || event.metaKey,
+    );
+  };
+
+  private readonly handlePointerMove = (event: PointerEvent): void => {
+    if (event.buttons !== 0) return;
+    const hit = this.pick(event.clientX, event.clientY);
+    this.renderer.domElement.style.cursor = hit ? "pointer" : "";
+    this.interactionHandlers.onHover?.(hit);
+  };
+
+  private readonly handlePointerLeave = (): void => {
+    this.renderer.domElement.style.cursor = "";
+    this.interactionHandlers.onHover?.(null);
+  };
+
+  private pick(clientX: number, clientY: number): RoomSceneHit | null {
+    const build = this.currentBuild;
+    if (!build) return null;
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    this.pointer.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+
+    for (const intersection of this.raycaster.intersectObject(build.group, true)) {
+      const hit = semanticHit(intersection.object);
+      if (hit) return hit;
+    }
+    return null;
   }
 
   private frameLevels(
@@ -419,7 +535,8 @@ export class RoomSceneRenderer {
   }
 
   private clearGenerated(): void {
-    this.removeSelectionHelper();
+    this.removeSelectionHelpers();
+    this.removeHoverHelper();
 
     const build = this.currentBuild;
     if (!build) return;
@@ -446,4 +563,19 @@ function disposeMaterials(
   } else {
     material.dispose();
   }
+}
+
+function semanticHit(object: Object3D): RoomSceneHit | null {
+  let current: Object3D | null = object;
+  while (current) {
+    const id = current.userData.roomcraftId;
+    const kind = current.userData.roomcraftKind;
+    if (typeof id === "string") {
+      if (kind === "wall") return { id, kind: "wall" };
+      if (kind === "object") return { id, kind: "object" };
+      if (kind === "room-surface") return { id, kind: "room" };
+    }
+    current = current.parent;
+  }
+  return null;
 }
