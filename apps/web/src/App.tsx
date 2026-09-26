@@ -2793,12 +2793,11 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               ghostProjection={ghostProjection}
               ghostLabel={ghostLevel?.name ?? null}
               activeTool={activeTool}
+              selection={selection}
+              hoveredTarget={hoveredTarget}
               selectedWallId={selectedWallId}
               selectedWallStartVertexId={selectedWallRecord?.startVertexId ?? null}
               selectedWallEndVertexId={selectedWallRecord?.endVertexId ?? null}
-              selectedRoomKey={selectedRoomKey}
-              selectedBlueprintId={selectedBlueprintId}
-              selectedObjectId={selectedObjectId}
               calibrationDraft={calibrationDraft}
               draftStart={wallDraft?.start.point ?? null}
               draftEnd={wallDraft ? hoverSnap?.point ?? wallDraft.start.point : null}
@@ -2807,13 +2806,14 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               openingHover={openingHover}
               onPoint={handlePlanPoint}
               onSelectWall={selectWall}
+              onMoveWall={moveWall}
               onMoveVertex={moveWallVertex}
-              onDeleteSelectedWall={removeSelectedWall}
               onSelectRoom={selectRoom}
               onSelectBlueprint={selectBlueprint}
               onMoveBlueprint={moveBlueprint}
               onSelectObject={selectObject}
               onMoveObject={moveObject}
+              onHoverTarget={setHoveredTarget}
               onClearSelection={clearSelection}
               onPointerPosition={handlePlanPointerMove}
               onPointerLeave={handlePlanPointerLeave}
@@ -2825,9 +2825,14 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
               document={document}
               levelId={levelId}
               levelScope={threeLevelScope}
-              selectedId={selectedObjectId ?? selectedWallId ?? selectedRoomKey}
+              selection={selection}
+              hoveredTarget={hoveredTarget}
               modelAssets={runtimeModelAssets}
               showCeilings={showCeilings}
+              onSelect={selectFromThree}
+              onHover={(hit) =>
+                setHoveredTarget(hit ? { kind: hit.kind, id: hit.id } : null)
+              }
             />
           )}
         </section>
@@ -2885,12 +2890,11 @@ interface PlanCanvasProps {
   ghostProjection: ReturnType<typeof projectLevel2D> | null;
   ghostLabel: string | null;
   activeTool: EditorTool;
+  selection: EditorSelection;
+  hoveredTarget: SelectionTarget | null;
   selectedWallId: string | null;
   selectedWallStartVertexId: string | null;
   selectedWallEndVertexId: string | null;
-  selectedRoomKey: string | null;
-  selectedBlueprintId: string | null;
-  selectedObjectId: string | null;
   calibrationDraft: BlueprintCalibrationDraft | null;
   draftStart: PlanPoint | null;
   draftEnd: PlanPoint | null;
@@ -2898,14 +2902,15 @@ interface PlanCanvasProps {
   snapSource: PlanSnapResult["source"] | null;
   openingHover: OpeningWallPlacement | null;
   onPoint(point: PlanPoint): void;
-  onSelectWall(wallId: string): void;
+  onSelectWall(wallId: string, additive?: boolean): void;
+  onMoveWall(wallId: string, deltaXmm: number, deltaYmm: number): void;
   onMoveVertex(vertexId: string, xMm: number, yMm: number): void;
-  onDeleteSelectedWall(): void;
-  onSelectRoom(roomKey: string): void;
-  onSelectBlueprint(blueprintId: string): void;
+  onSelectRoom(roomKey: string, additive?: boolean): void;
+  onSelectBlueprint(blueprintId: string, additive?: boolean): void;
   onMoveBlueprint(blueprintId: string, xMm: number, yMm: number): void;
-  onSelectObject(objectId: string): void;
+  onSelectObject(objectId: string, additive?: boolean): void;
   onMoveObject(objectId: string, xMm: number, yMm: number): void;
+  onHoverTarget(target: SelectionTarget | null): void;
   onClearSelection(): void;
   onPointerPosition(point: PlanPoint): void;
   onPointerLeave(): void;
@@ -2924,12 +2929,11 @@ function PlanCanvas({
   ghostProjection,
   ghostLabel,
   activeTool,
+  selection,
+  hoveredTarget,
   selectedWallId,
   selectedWallStartVertexId,
   selectedWallEndVertexId,
-  selectedRoomKey,
-  selectedBlueprintId,
-  selectedObjectId,
   calibrationDraft,
   draftStart,
   draftEnd,
@@ -2938,13 +2942,14 @@ function PlanCanvas({
   openingHover,
   onPoint,
   onSelectWall,
+  onMoveWall,
   onMoveVertex,
-  onDeleteSelectedWall,
   onSelectRoom,
   onSelectBlueprint,
   onMoveBlueprint,
   onSelectObject,
   onMoveObject,
+  onHoverTarget,
   onClearSelection,
   onPointerPosition,
   onPointerLeave,
