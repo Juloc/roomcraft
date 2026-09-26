@@ -403,7 +403,7 @@ export class RoomSceneRenderer {
     this.raycaster.setFromCamera(this.pointer, this.camera);
 
     for (const intersection of this.raycaster.intersectObject(build.group, true)) {
-      const hit = semanticHit(intersection.object);
+      const hit = semanticRoomSceneHit(intersection.object);
       if (hit) return hit;
     }
     return null;
@@ -569,7 +569,7 @@ function disposeMaterials(
   }
 }
 
-function semanticHit(object: Object3D): RoomSceneHit | null {
+export function semanticRoomSceneHit(object: Object3D): RoomSceneHit | null {
   let current: Object3D | null = object;
   while (current) {
     const id = current.userData.roomcraftId;
