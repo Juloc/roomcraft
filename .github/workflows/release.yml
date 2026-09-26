@@ -18,7 +18,7 @@ on:
       version:
         description: Container version without the v prefix
         required: true
-        default: 0.1.0-alpha.7
+        default: 0.1.0-alpha.8
 
 permissions:
   contents: write
@@ -26,7 +26,7 @@ permissions:
 
 env:
   IMAGE_NAME: ghcr.io/juloc/roomcraft
-  VERSION: ${{ inputs.version || '0.1.0-alpha.7' }}
+  VERSION: ${{ inputs.version || '0.1.0-alpha.8' }}
 
 jobs:
   release:
