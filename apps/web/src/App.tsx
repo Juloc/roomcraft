@@ -1068,8 +1068,14 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     }
   }
 
-  function selectBlueprint(blueprintId: string) {
-    setSelection(selectOnly({ kind: "blueprint", id: blueprintId }));
+  function updateSelectionTarget(target: SelectionTarget, additive = false) {
+    setSelection((current) =>
+      additive ? toggleSelection(current, target) : selectOnly(target),
+    );
+  }
+
+  function selectBlueprint(blueprintId: string, additive = false) {
+    updateSelectionTarget({ kind: "blueprint", id: blueprintId }, additive);
   }
 
   function startBlueprintCalibration() {
@@ -1171,8 +1177,8 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     );
   }
 
-  function selectObject(objectId: string) {
-    setSelection(selectOnly({ kind: "object", id: objectId }));
+  function selectObject(objectId: string, additive = false) {
+    updateSelectionTarget({ kind: "object", id: objectId }, additive);
     const object = currentLevel()?.objects.find(
       (candidate) => candidate.id === objectId,
     );
@@ -1283,12 +1289,26 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     }
   }
 
-  function selectWall(wallId: string) {
-    setSelection(selectOnly({ kind: "wall", id: wallId }));
+  function selectWall(wallId: string, additive = false) {
+    updateSelectionTarget({ kind: "wall", id: wallId }, additive);
   }
 
-  function selectRoom(roomKey: string) {
-    setSelection(selectOnly({ kind: "room", id: roomKey }));
+  function selectRoom(roomKey: string, additive = false) {
+    updateSelectionTarget({ kind: "room", id: roomKey }, additive);
+  }
+
+  function selectFromThree(hit: RoomSceneHit | null, additive: boolean) {
+    if (!hit) {
+      if (!additive) clearSelection();
+      return;
+    }
+    updateSelectionTarget({ kind: hit.kind, id: hit.id }, additive);
+    if (hit.kind === "object") {
+      const object = currentLevel()?.objects.find(
+        (candidate) => candidate.id === hit.id,
+      );
+      if (object) void loadCatalogDefinition(object.assetId);
+    }
   }
 
   function setSelectedWallMaterial(
@@ -1373,10 +1393,124 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
     );
   }
 
+  function moveWall(wallId: string, deltaXmm: number, deltaYmm: number) {
+    if (deltaXmm === 0 && deltaYmm === 0) return;
+    session.execute(
+      new MoveWallCommand({
+        levelId,
+        wallId,
+        deltaXmm: Math.round(deltaXmm),
+        deltaYmm: Math.round(deltaYmm),
+      }),
+    );
+  }
+
   function removeSelectedWall() {
     if (!selectedWallId) return;
     session.execute(new RemoveWallByIdCommand(levelId, selectedWallId));
     setSelection(EMPTY_SELECTION);
+  }
+
+  function duplicateSelection() {
+    const current = currentLevel();
+    if (!current) return;
+
+    const offsetMm = Math.max(document.settings.gridSizeMm * 2, 200);
+    const commands = [];
+    const nextTargets: SelectionTarget[] = [];
+
+    for (const target of selection.items) {
+      if (target.kind === "object") {
+        const object = current.objects.find((candidate) => candidate.id === target.id);
+        if (!object) continue;
+        const id = createEntityId("object");
+        commands.push(
+          new AddObjectCommand({
+            levelId,
+            object: {
+              ...object,
+              id,
+              xMm: object.xMm + offsetMm,
+              yMm: object.yMm + offsetMm,
+              locked: false,
+            },
+          }),
+        );
+        nextTargets.push({ kind: "object", id });
+      } else if (target.kind === "blueprint") {
+        const blueprint = current.blueprints.find(
+          (candidate) => candidate.id === target.id,
+        );
+        if (!blueprint) continue;
+        const id = createEntityId("blueprint");
+        commands.push(
+          new AddBlueprintCommand({
+            levelId,
+            blueprint: {
+              ...blueprint,
+              id,
+              originXmm: blueprint.originXmm + offsetMm,
+              originYmm: blueprint.originYmm + offsetMm,
+              locked: false,
+            },
+          }),
+        );
+        nextTargets.push({ kind: "blueprint", id });
+      }
+    }
+
+    if (commands.length === 0) return;
+    session.execute(
+      commands.length === 1 ? commands[0]! : new BatchCommand(commands),
+    );
+    setSelection(selectMany(nextTargets));
+  }
+
+  function deleteSelection() {
+    const commands = selection.items.flatMap((target) => {
+      if (target.kind === "wall") {
+        return [new RemoveWallByIdCommand(levelId, target.id)];
+      }
+      if (target.kind === "object") {
+        return [new RemoveObjectCommand(levelId, target.id)];
+      }
+      if (target.kind === "blueprint") {
+        return [new RemoveBlueprintCommand(levelId, target.id)];
+      }
+      return [];
+    });
+
+    if (commands.length === 0) return;
+    session.execute(
+      commands.length === 1 ? commands[0]! : new BatchCommand(commands),
+    );
+    setSelection(EMPTY_SELECTION);
+  }
+
+  function handleEditorKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.defaultPrevented) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      (target instanceof HTMLElement && target.isContentEditable)
+    ) {
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
+      if (duplicableSelectionCount === 0) return;
+      event.preventDefault();
+      duplicateSelection();
+      return;
+    }
+
+    if (event.key === "Delete" || event.key === "Backspace") {
+      if (deletableSelectionCount === 0) return;
+      event.preventDefault();
+      deleteSelection();
+    }
   }
 
   function exportNativeProject() {
@@ -2475,7 +2609,7 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   );
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" onKeyDownCapture={handleEditorKeyDown}>
       <header className="app-header">
         <div className="app-brand">
           <div className="desktop-only">
