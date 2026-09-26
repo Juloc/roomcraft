@@ -1230,6 +1230,10 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   }
 
   function duplicateSelectedObject() {
+    if (selection.items.length > 1) {
+      duplicateSelection();
+      return;
+    }
     const current = currentLevel();
     if (!current || !selectedObject) return;
 
@@ -1264,16 +1268,21 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   }
 
   function removeSelectedObject() {
+    if (selection.items.length > 1) {
+      deleteSelection();
+      return;
+    }
     if (!selectedObjectId) return;
     session.execute(new RemoveObjectCommand(levelId, selectedObjectId));
     setSelection(EMPTY_SELECTION);
   }
 
-    function cancelTransient() {
+  function cancelTransient() {
     setWallDraft(null);
     setHoverSnap(null);
     setOpeningHover(null);
     setCalibrationDraft(null);
+    setHoveredTarget(null);
   }
 
   function selectTool(tool: EditorTool) {
@@ -1406,6 +1415,10 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
   }
 
   function removeSelectedWall() {
+    if (selection.items.length > 1) {
+      deleteSelection();
+      return;
+    }
     if (!selectedWallId) return;
     session.execute(new RemoveWallByIdCommand(levelId, selectedWallId));
     setSelection(EMPTY_SELECTION);
@@ -1989,6 +2002,35 @@ export function EditorApp({ projectId, onExit }: EditorAppProps) {
                     </div>
                   ) : null}
     
+                  {selection.items.length > 1 ? (
+                    <div className="selection-summary" aria-label="Multiple selection">
+                      <span className="eyebrow">Selection</span>
+                      <strong>{selection.items.length} items selected</strong>
+                      <span className="property-hint">
+                        Shift-click adds or removes items. The last selected item remains the primary editor target.
+                      </span>
+                      <div className="selection-actions">
+                        <Button
+                          variant="secondary"
+                          disabled={duplicableSelectionCount === 0}
+                          onClick={duplicateSelection}
+                        >
+                          Duplicate {duplicableSelectionCount > 0 ? `(${duplicableSelectionCount})` : ""}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={deletableSelectionCount === 0}
+                          onClick={deleteSelection}
+                        >
+                          Delete {deletableSelectionCount > 0 ? `(${deletableSelectionCount})` : ""}
+                        </Button>
+                        <Button variant="ghost" onClick={clearSelection}>
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="blueprint-layers">
                     <span className="eyebrow">Blueprint layers</span>
                     <LayerList
