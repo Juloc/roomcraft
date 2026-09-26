@@ -300,6 +300,13 @@ body {
   cursor: pointer;
 }
 
+.plan-room__fill--hovered {
+  fill-opacity: 0.16;
+  stroke: color-mix(in srgb, var(--rc-accent) 55%, var(--rc-text-muted));
+  stroke-width: 12;
+  stroke-linejoin: round;
+}
+
 .plan-room__fill--selected {
   stroke: var(--rc-accent);
   stroke-width: 22;
@@ -324,11 +331,19 @@ body {
 .plan-wall-hit {
   stroke: transparent;
   pointer-events: stroke;
-  cursor: pointer;
+  cursor: grab;
+}
+
+.plan-wall-hit:active {
+  cursor: grabbing;
 }
 
 .plan-wall {
   stroke: var(--rc-text);
+}
+
+.plan-wall--hovered {
+  stroke: color-mix(in srgb, var(--rc-accent) 58%, var(--rc-text));
 }
 
 .plan-wall--selected {
@@ -463,11 +478,19 @@ body {
   line-height: 1.45;
 }
 
+.selection-summary,
 .selection-properties {
   display: grid;
   gap: var(--rc-space-3);
   padding-top: var(--rc-space-4);
   border-top: 1px solid var(--rc-border);
+}
+
+.selection-summary {
+  padding: var(--rc-space-3);
+  border: 1px solid var(--rc-border);
+  border-radius: var(--rc-radius-md);
+  background: var(--rc-surface-muted);
 }
 
 .tool-status {
@@ -710,6 +733,10 @@ body {
   cursor: move;
 }
 
+.plan-blueprint--hovered {
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--rc-accent) 55%, transparent));
+}
+
 .plan-blueprint--locked {
   cursor: default;
 }
@@ -802,6 +829,11 @@ body {
   stroke: var(--rc-text-muted);
   stroke-width: 12;
   vector-effect: non-scaling-stroke;
+}
+
+.plan-object--hovered .plan-object__footprint {
+  stroke: color-mix(in srgb, var(--rc-accent) 58%, var(--rc-text-muted));
+  stroke-width: 16;
 }
 
 .plan-object--selected .plan-object__footprint {
@@ -1147,4 +1179,9 @@ body {
 
 .selection-properties > .rc-segmented .rc-segmented__item {
   flex: 1 1 0;
+}
+
+.roomcraft-three-canvas:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: -2px;
 }
